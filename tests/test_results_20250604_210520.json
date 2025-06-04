@@ -1,0 +1,3888 @@
+{
+  "metadata": {
+    "timestamp": "2025-06-04T21:05:20.477551",
+    "total_cases": 59,
+    "base_url": "http://localhost:8001",
+    "index_id": "771f3739-7448-488a-89d3-d18a99b16408"
+  },
+  "results": [
+    {
+      "test_case": {
+        "id": "def_001",
+        "query": "什么是消防设施？",
+        "expected_keywords": [
+          "火灾自动报警系统",
+          "应急广播",
+          "应急照明",
+          "安全疏散设施"
+        ],
+        "expected_articles": [
+          "第七十三条"
+        ],
+        "category": "基础定义",
+        "difficulty": "easy",
+        "query_type": "定义",
+        "description": "测试对消防设施定义的理解"
+      },
+      "metrics": {
+        "keyword_recall": 1.0,
+        "keyword_precision": 1.0,
+        "article_recall": 1.0,
+        "article_precision": 1.0,
+        "semantic_relevance": 0.987269401550293,
+        "response_time": 0.14209723472595215,
+        "success_rate": 1.0
+      },
+      "detailed_analysis": {
+        "found_keywords": [
+          "火灾自动报警系统",
+          "应急广播",
+          "应急照明",
+          "安全疏散设施"
+        ],
+        "found_articles": [
+          "第七十三条"
+        ],
+        "expected_keywords": [
+          "火灾自动报警系统",
+          "应急广播",
+          "应急照明",
+          "安全疏散设施"
+        ],
+        "expected_articles": [
+          "第七十三条"
+        ],
+        "top_documents": [
+          {
+            "title": "中华人民共和国消防法",
+            "content_preview": "## 第七十三条 本法下列用语的含义：\n\n（一）消防设施，是指火灾自动报警系统、自动灭火系统、消火栓系统、防烟排烟系统以及应急广播和应急照明、安全疏散设施等。\n\n（二）消防产品，是指专门用于火灾预防、灭火救援和火灾防护、避难、逃生的产品。...",
+            "score": 0.987269401550293
+          }
+        ]
+      },
+      "retrieval_info": {
+        "total_docs": 1,
+        "response_time": 0.14209723472595215,
+        "error": null
+      }
+    },
+    {
+      "test_case": {
+        "id": "def_002",
+        "query": "消防产品包括哪些？",
+        "expected_keywords": [
+          "火灾预防",
+          "灭火救援",
+          "火灾防护",
+          "避难",
+          "逃生"
+        ],
+        "expected_articles": [
+          "第七十三条"
+        ],
+        "category": "基础定义",
+        "difficulty": "easy",
+        "query_type": "定义",
+        "description": "测试对消防产品定义的理解"
+      },
+      "metrics": {
+        "keyword_recall": 1.0,
+        "keyword_precision": 1.0,
+        "article_recall": 1.0,
+        "article_precision": 1.0,
+        "semantic_relevance": 0.8536190986633301,
+        "response_time": 0.13636136054992676,
+        "success_rate": 1.0
+      },
+      "detailed_analysis": {
+        "found_keywords": [
+          "火灾预防",
+          "灭火救援",
+          "火灾防护",
+          "避难",
+          "逃生"
+        ],
+        "found_articles": [
+          "第七十三条"
+        ],
+        "expected_keywords": [
+          "火灾预防",
+          "灭火救援",
+          "火灾防护",
+          "避难",
+          "逃生"
+        ],
+        "expected_articles": [
+          "第七十三条"
+        ],
+        "top_documents": [
+          {
+            "title": "中华人民共和国消防法",
+            "content_preview": "## 第七十三条 本法下列用语的含义：\n\n（一）消防设施，是指火灾自动报警系统、自动灭火系统、消火栓系统、防烟排烟系统以及应急广播和应急照明、安全疏散设施等。\n\n（二）消防产品，是指专门用于火灾预防、灭火救援和火灾防护、避难、逃生的产品。...",
+            "score": 0.8905424475669861
+          },
+          {
+            "title": "中华人民共和国消防法",
+            "content_preview": "（二）消防产品，是指专门用于火灾预防、灭火救援和火灾防护、避难、逃生的产品。\n\n（三）公众聚集场所，是指宾馆、饭店、商场、集贸市场、客运车站候车室、客运码头候船厅、民用机场航站楼、体育场馆、会堂以及公共娱乐场所等。...",
+            "score": 0.8166957497596741
+          }
+        ]
+      },
+      "retrieval_info": {
+        "total_docs": 2,
+        "response_time": 0.13636136054992676,
+        "error": null
+      }
+    },
+    {
+      "test_case": {
+        "id": "def_003",
+        "query": "人员密集场所是指什么？",
+        "expected_keywords": [
+          "公众聚集场所",
+          "医院",
+          "学校",
+          "幼儿园",
+          "养老院",
+          "宿舍"
+        ],
+        "expected_articles": [
+          "第七十三条"
+        ],
+        "category": "基础定义",
+        "difficulty": "medium",
+        "query_type": "定义",
+        "description": "测试对人员密集场所定义的理解"
+      },
+      "metrics": {
+        "keyword_recall": 1.0,
+        "keyword_precision": 1.0,
+        "article_recall": 0.0,
+        "article_precision": 0.0,
+        "semantic_relevance": 0.9710599184036255,
+        "response_time": 0.13706302642822266,
+        "success_rate": 1.0
+      },
+      "detailed_analysis": {
+        "found_keywords": [
+          "公众聚集场所",
+          "医院",
+          "学校",
+          "幼儿园",
+          "养老院",
+          "宿舍"
+        ],
+        "found_articles": [],
+        "expected_keywords": [
+          "公众聚集场所",
+          "医院",
+          "学校",
+          "幼儿园",
+          "养老院",
+          "宿舍"
+        ],
+        "expected_articles": [
+          "第七十三条"
+        ],
+        "top_documents": [
+          {
+            "title": "中华人民共和国消防法",
+            "content_preview": "（四）人员密集场所，是指公众聚集场所，医院的门诊楼、病房楼，学校的教学楼、图书馆、食堂和集体宿舍，养老院，福利院，托儿所，幼儿园，公共图书馆的阅览室，公共展览馆、博物馆的展示厅，劳动密集型企业的生产加工车间和员工集体宿舍，旅游、宗教活动场所等。...",
+            "score": 0.9710599184036255
+          }
+        ]
+      },
+      "retrieval_info": {
+        "total_docs": 1,
+        "response_time": 0.13706302642822266,
+        "error": null
+      }
+    },
+    {
+      "test_case": {
+        "id": "resp_001",
+        "query": "政府在消防工作中的职责是什么？",
+        "expected_keywords": [
+          "统一领导",
+          "国民经济",
+          "社会发展计划",
+          "经济社会发展相适应"
+        ],
+        "expected_articles": [
+          "第三条"
+        ],
+        "category": "政府职责",
+        "difficulty": "medium",
+        "query_type": "职责",
+        "description": "测试对政府消防职责的理解"
+      },
+      "metrics": {
+        "keyword_recall": 0.75,
+        "keyword_precision": 0.75,
+        "article_recall": 1.0,
+        "article_precision": 0.2,
+        "semantic_relevance": 0.872321081161499,
+        "response_time": 0.13644719123840332,
+        "success_rate": 1.0
+      },
+      "detailed_analysis": {
+        "found_keywords": [
+          "国民经济",
+          "社会发展计划",
+          "经济社会发展相适应"
+        ],
+        "found_articles": [
+          "第四条",
+          "第六条",
+          "第三条",
+          "第五十二条",
+          "第三十二条"
+        ],
+        "expected_keywords": [
+          "统一领导",
+          "国民经济",
+          "社会发展计划",
+          "经济社会发展相适应"
+        ],
+        "expected_articles": [
+          "第三条"
+        ],
+        "top_documents": [
+          {
+            "title": "中华人民共和国消防法",
+            "content_preview": "## 第四条\n\n国务院应急管理部门对全国的消防工作实施监督管理。县级以上地方人民政府应急管理部门对本行政区域内的消防工作实施监督管理，并由本级人民政府消防救援机构负责实施。军事设施的消防工作，由其主管单位监督管理，消防救援机构协助：矿井地下部分、核电厂、海上石油天然气设施的消防工作，由其主管单位\n\n监督管理。...",
+            "score": 0.9630259275436401
+          },
+          {
+            "title": "中华人民共和国消防法",
+            "content_preview": "## 第三条\n\n国务院领导全国的消防工作。地方各级人民政府负责本行政区域内的消防工作。\n\n各级人民政府应当将消防工作纳入国民经济和社会发展计划，保障消防工作与经济社会发展相适应。...",
+            "score": 0.9258156418800354
+          },
+          {
+            "title": "中华人民共和国消防法",
+            "content_preview": "## 第五十二条\n\n地方各级人民政府应当落实消防工作责任制，对本级人民政府有关部门履行消防安全职责的情况进行监督检查。\n\n县级以上地方人民政府有关部门应当根据本系统的特点，有针对性地开展消防安全检查，及时督促整改火灾隐患。...",
+            "score": 0.9236524701118469
+          }
+        ]
+      },
+      "retrieval_info": {
+        "total_docs": 5,
+        "response_time": 0.13644719123840332,
+        "error": null
+      }
+    },
+    {
+      "test_case": {
+        "id": "resp_002",
+        "query": "应急管理部门的监督管理职责有哪些？",
+        "expected_keywords": [
+          "监督管理",
+          "消防救援机构",
+          "军事设施",
+          "海上石油天然气设施"
+        ],
+        "expected_articles": [
+          "第四条"
+        ],
+        "category": "部门职责",
+        "difficulty": "medium",
+        "query_type": "职责",
+        "description": "测试对应急管理部门职责的理解"
+      },
+      "metrics": {
+        "keyword_recall": 1.0,
+        "keyword_precision": 1.0,
+        "article_recall": 1.0,
+        "article_precision": 1.0,
+        "semantic_relevance": 0.9281088709831238,
+        "response_time": 0.14083170890808105,
+        "success_rate": 1.0
+      },
+      "detailed_analysis": {
+        "found_keywords": [
+          "监督管理",
+          "消防救援机构",
+          "军事设施",
+          "海上石油天然气设施"
+        ],
+        "found_articles": [
+          "第四条"
+        ],
+        "expected_keywords": [
+          "监督管理",
+          "消防救援机构",
+          "军事设施",
+          "海上石油天然气设施"
+        ],
+        "expected_articles": [
+          "第四条"
+        ],
+        "top_documents": [
+          {
+            "title": "中华人民共和国消防法",
+            "content_preview": "## 第四条\n\n国务院应急管理部门对全国的消防工作实施监督管理。县级以上地方人民政府应急管理部门对本行政区域内的消防工作实施监督管理，并由本级人民政府消防救援机构负责实施。军事设施的消防工作，由其主管单位监督管理，消防救援机构协助：矿井地下部分、核电厂、海上石油天然气设施的消防工作，由其主管单位\n\n监督管理。...",
+            "score": 0.9281088709831238
+          }
+        ]
+      },
+      "retrieval_info": {
+        "total_docs": 1,
+        "response_time": 0.14083170890808105,
+        "error": null
+      }
+    },
+    {
+      "test_case": {
+        "id": "resp_003",
+        "query": "公民在消防工作中有什么义务？",
+        "expected_keywords": [
+          "维护消防安全",
+          "参加有组织的灭火工作",
+          "成年人"
+        ],
+        "expected_articles": [
+          "第五条"
+        ],
+        "category": "公民义务",
+        "difficulty": "easy",
+        "query_type": "义务",
+        "description": "测试对公民消防义务的理解"
+      },
+      "metrics": {
+        "keyword_recall": 1.0,
+        "keyword_precision": 1.0,
+        "article_recall": 1.0,
+        "article_precision": 0.5,
+        "semantic_relevance": 0.8017413914203644,
+        "response_time": 0.13579988479614258,
+        "success_rate": 1.0
+      },
+      "detailed_analysis": {
+        "found_keywords": [
+          "维护消防安全",
+          "参加有组织的灭火工作",
+          "成年人"
+        ],
+        "found_articles": [
+          "第六条",
+          "第五条"
+        ],
+        "expected_keywords": [
+          "维护消防安全",
+          "参加有组织的灭火工作",
+          "成年人"
+        ],
+        "expected_articles": [
+          "第五条"
+        ],
+        "top_documents": [
+          {
+            "title": "中华人民共和国消防法",
+            "content_preview": "## 第五条\n\n任何单位和个人都有维护消防安全、保护消防设施、预防火灾、报告火警的义务。任何单位和成年人都有参加有组织的灭火工作的义务。...",
+            "score": 0.8391420245170593
+          },
+          {
+            "title": "中华人民共和国消防法",
+            "content_preview": "## 第六条\n\n各级人民政府应当组织开展经常性的消防宣传教育，提高公民的消防安全意识。\n\n机关、团体、企业、事业等单位，应当加强对本单位人员的消防宣传教育。\n\n应急管理部门及消防救援机构应当加强消防法律、法规的宣传，并督促、指导、协助有关单位做好消防宣传教育工作。...",
+            "score": 0.7643407583236694
+          }
+        ]
+      },
+      "retrieval_info": {
+        "total_docs": 2,
+        "response_time": 0.13579988479614258,
+        "error": null
+      }
+    },
+    {
+      "test_case": {
+        "id": "resp_004",
+        "query": "物业服务企业的消防职责是什么？",
+        "expected_keywords": [
+          "共用消防设施",
+          "维护管理",
+          "消防安全防范服务",
+          "住宅区"
+        ],
+        "expected_articles": [
+          "第十八条"
+        ],
+        "category": "企业职责",
+        "difficulty": "medium",
+        "query_type": "职责",
+        "description": "测试对物业企业消防职责的理解"
+      },
+      "metrics": {
+        "keyword_recall": 1.0,
+        "keyword_precision": 1.0,
+        "article_recall": 1.0,
+        "article_precision": 1.0,
+        "semantic_relevance": 0.8484668135643005,
+        "response_time": 0.1348273754119873,
+        "success_rate": 1.0
+      },
+      "detailed_analysis": {
+        "found_keywords": [
+          "共用消防设施",
+          "维护管理",
+          "消防安全防范服务",
+          "住宅区"
+        ],
+        "found_articles": [
+          "第十八条"
+        ],
+        "expected_keywords": [
+          "共用消防设施",
+          "维护管理",
+          "消防安全防范服务",
+          "住宅区"
+        ],
+        "expected_articles": [
+          "第十八条"
+        ],
+        "top_documents": [
+          {
+            "title": "中华人民共和国消防法",
+            "content_preview": "## 第十八条\n\n同一建筑物由两个以上单位管理或者使用的，应当明确各方的消防安全责任，并确定责任人对共用的疏散通道、安全出口、建筑消防设施和消防车通道进行统一管理\n\n住宅区的物业服务企业应当对管理区域内的共用消防设施进行维护管理，提供消防安全防范服务。...",
+            "score": 0.8484668135643005
+          }
+        ]
+      },
+      "retrieval_info": {
+        "total_docs": 1,
+        "response_time": 0.1348273754119873,
+        "error": null
+      }
+    },
+    {
+      "test_case": {
+        "id": "proc_001",
+        "query": "建设工程消防设计审查的流程是什么？",
+        "expected_keywords": [
+          "特殊建设工程",
+          "消防设计文件",
+          "住房和城乡建设主管部门",
+          "审查"
+        ],
+        "expected_articles": [
+          "第十一条"
+        ],
+        "category": "审查程序",
+        "difficulty": "hard",
+        "query_type": "程序",
+        "description": "测试对消防设计审查程序的理解"
+      },
+      "metrics": {
+        "keyword_recall": 1.0,
+        "keyword_precision": 1.0,
+        "article_recall": 1.0,
+        "article_precision": 0.2,
+        "semantic_relevance": 0.8752555608749389,
+        "response_time": 0.13010549545288086,
+        "success_rate": 1.0
+      },
+      "detailed_analysis": {
+        "found_keywords": [
+          "特殊建设工程",
+          "消防设计文件",
+          "住房和城乡建设主管部门",
+          "审查"
+        ],
+        "found_articles": [
+          "第十一条",
+          "第十四条",
+          "第五十六条",
+          "第十条",
+          "第十二条"
+        ],
+        "expected_keywords": [
+          "特殊建设工程",
+          "消防设计文件",
+          "住房和城乡建设主管部门",
+          "审查"
+        ],
+        "expected_articles": [
+          "第十一条"
+        ],
+        "top_documents": [
+          {
+            "title": "中华人民共和国消防法",
+            "content_preview": "## 第十条\n\n对按照国家工程建设消防技术标准需要进行消防设计的建设工程，实行建设工程消防设计审查验收制度。...",
+            "score": 0.941336989402771
+          },
+          {
+            "title": "中华人民共和国消防法",
+            "content_preview": "## 第十一条\n\n国务院住房和城乡建设主管部门规定的特殊建设工程，建设单位应当将消防设计文件报送住房和城乡建设主管部门审查，住房和城乡建设主管部门依法对审查的结果负责。\n\n前款规定以外的其他建设工程，建设单位申请领取施工许可证或者申请批准开工报告时应当提供满足施工需要的消防设计图纸及技术资料。...",
+            "score": 0.9407168030738831
+          },
+          {
+            "title": "中华人民共和国消防法",
+            "content_preview": "## 第十四条\n\n建设工程消防设计审查、消防验收、备案和抽查的具体办法，由国务院住房和城乡建设主管部门规定。...",
+            "score": 0.9363435506820679
+          }
+        ]
+      },
+      "retrieval_info": {
+        "total_docs": 5,
+        "response_time": 0.13010549545288086,
+        "error": null
+      }
+    },
+    {
+      "test_case": {
+        "id": "proc_002",
+        "query": "消防验收的程序是怎样的？",
+        "expected_keywords": [
+          "建设工程竣工",
+          "申请消防验收",
+          "备案",
+          "抽查"
+        ],
+        "expected_articles": [
+          "第十三条"
+        ],
+        "category": "验收程序",
+        "difficulty": "hard",
+        "query_type": "程序",
+        "description": "测试对消防验收程序的理解"
+      },
+      "metrics": {
+        "keyword_recall": 0.5,
+        "keyword_precision": 0.5,
+        "article_recall": 0.0,
+        "article_precision": 0.0,
+        "semantic_relevance": 0.7817654013633728,
+        "response_time": 0.13422870635986328,
+        "success_rate": 1.0
+      },
+      "detailed_analysis": {
+        "found_keywords": [
+          "备案",
+          "抽查"
+        ],
+        "found_articles": [
+          "第五十六条"
+        ],
+        "expected_keywords": [
+          "建设工程竣工",
+          "申请消防验收",
+          "备案",
+          "抽查"
+        ],
+        "expected_articles": [
+          "第十三条"
+        ],
+        "top_documents": [
+          {
+            "title": "中华人民共和国消防法",
+            "content_preview": "## 第五十六条\n\n住房和城乡建设主管部门、消防救援机构及其工作人员应当按照法定的职权和程序进行消防设计审查、消防验收、备案抽查和消防安全检查，做到公正、严格、文明、高效。...",
+            "score": 0.7817654013633728
+          }
+        ]
+      },
+      "retrieval_info": {
+        "total_docs": 1,
+        "response_time": 0.13422870635986328,
+        "error": null
+      }
+    },
+    {
+      "test_case": {
+        "id": "proc_003",
+        "query": "公众聚集场所消防安全检查的程序是什么？",
+        "expected_keywords": [
+          "告知承诺管理",
+          "申请",
+          "承诺",
+          "材料",
+          "核查"
+        ],
+        "expected_articles": [
+          "第十五条"
+        ],
+        "category": "检查程序",
+        "difficulty": "hard",
+        "query_type": "程序",
+        "description": "测试对消防安全检查程序的理解"
+      },
+      "metrics": {
+        "keyword_recall": 1.0,
+        "keyword_precision": 1.0,
+        "article_recall": 1.0,
+        "article_precision": 1.0,
+        "semantic_relevance": 0.8663605650266012,
+        "response_time": 0.13509392738342285,
+        "success_rate": 1.0
+      },
+      "detailed_analysis": {
+        "found_keywords": [
+          "告知承诺管理",
+          "申请",
+          "承诺",
+          "材料",
+          "核查"
+        ],
+        "found_articles": [
+          "第十五条"
+        ],
+        "expected_keywords": [
+          "告知承诺管理",
+          "申请",
+          "承诺",
+          "材料",
+          "核查"
+        ],
+        "expected_articles": [
+          "第十五条"
+        ],
+        "top_documents": [
+          {
+            "title": "中华人民共和国消防法",
+            "content_preview": "## 第十五条\n\n公众聚集场所投入使用、营业前消防安全检查实行告知承诺管理。公众聚集场所在投入使用、营业前，建设单位或者使用单位应当向场所所在地的县级以上地方人民政府消防救援机构申请消防安全检查，作出场所符合消防技术标准和管理规定的承诺，提交规定的材料，并对其承诺和材料的真实性负责。...",
+            "score": 0.9290221929550171
+          },
+          {
+            "title": "中华人民共和国消防法",
+            "content_preview": "经检查符合消防安全要求的，应当予以许可。\n\n公众聚集场所未经消防救援机构许可的，不得投入使用、营业。消防安全检查的具体办法，由国务院应急管理部门制定。...",
+            "score": 0.852419376373291
+          },
+          {
+            "title": "中华人民共和国消防法",
+            "content_preview": "消防救援机构对申请人提交的材料进行审查；申请材料齐全、符合法定形式的，应当予以许可。消防救援机构应当根据消防技术标准和管理规定，及时对作出承诺的公众聚集场所进行核查。\n\n申请人选择不采用告知承诺方式办理的，消防救援机构应当自受理申请之日起十个工作日内，根据消防技术标准和管理规定，对该场所进行检查。...",
+            "score": 0.8176401257514954
+          }
+        ]
+      },
+      "retrieval_info": {
+        "total_docs": 3,
+        "response_time": 0.13509392738342285,
+        "error": null
+      }
+    },
+    {
+      "test_case": {
+        "id": "pen_001",
+        "query": "未经消防设计审查擅自施工会受到什么处罚？",
+        "expected_keywords": [
+          "停止施工",
+          "三万元以上三十万元以下",
+          "罚款"
+        ],
+        "expected_articles": [
+          "第五十八条"
+        ],
+        "category": "建设违法",
+        "difficulty": "hard",
+        "query_type": "处罚",
+        "description": "测试对建设工程违法行为处罚的理解"
+      },
+      "metrics": {
+        "keyword_recall": 1.0,
+        "keyword_precision": 1.0,
+        "article_recall": 1.0,
+        "article_precision": 0.5,
+        "semantic_relevance": 0.8664336204528809,
+        "response_time": 0.13353443145751953,
+        "success_rate": 1.0
+      },
+      "detailed_analysis": {
+        "found_keywords": [
+          "停止施工",
+          "三万元以上三十万元以下",
+          "罚款"
+        ],
+        "found_articles": [
+          "第十二条",
+          "第五十八条"
+        ],
+        "expected_keywords": [
+          "停止施工",
+          "三万元以上三十万元以下",
+          "罚款"
+        ],
+        "expected_articles": [
+          "第五十八条"
+        ],
+        "top_documents": [
+          {
+            "title": "中华人民共和国消防法",
+            "content_preview": "## 第五十八条\n\n违反本法规定，有下列行为之一的，由住房和城乡建设主管部门、消防救援机构按照各自职权责令停止施工、停止使用或者停产停业，并处三万元以上三十万元以下罚款：\n\n（一）依法应当进行消防设计审查的建设工程，未经依法审查或者审查不合格，擅自施工的；\n\n（二）依法应当进行消防验收的建设工程，未经消防验收或者消防验收不合格，擅自投入使...",
+            "score": 0.9838196635246277
+          },
+          {
+            "title": "中华人民共和国消防法",
+            "content_preview": "## 第十二条\n\n特殊建设工程未经消防设计审查或者审查不合格的，建设单位、施工单位不得施工；其他建设工程，建设单位未提供满足施工需要的消防设计图纸及技术资料的，有关部门不得发放施工许可证或者批准开工报告。...",
+            "score": 0.749047577381134
+          }
+        ]
+      },
+      "retrieval_info": {
+        "total_docs": 2,
+        "response_time": 0.13353443145751953,
+        "error": null
+      }
+    },
+    {
+      "test_case": {
+        "id": "pen_002",
+        "query": "谎报火警会面临什么法律后果？",
+        "expected_keywords": [
+          "治安管理处罚法",
+          "处罚"
+        ],
+        "expected_articles": [
+          "第六十二条"
+        ],
+        "category": "违法行为",
+        "difficulty": "medium",
+        "query_type": "处罚",
+        "description": "测试对谎报火警处罚的理解"
+      },
+      "metrics": {
+        "keyword_recall": 0.0,
+        "keyword_precision": 0.0,
+        "article_recall": 0.0,
+        "article_precision": 0.0,
+        "semantic_relevance": 0.9696147441864014,
+        "response_time": 0.1378026008605957,
+        "success_rate": 1.0
+      },
+      "detailed_analysis": {
+        "found_keywords": [],
+        "found_articles": [
+          "第四十四条"
+        ],
+        "expected_keywords": [
+          "治安管理处罚法",
+          "处罚"
+        ],
+        "expected_articles": [
+          "第六十二条"
+        ],
+        "top_documents": [
+          {
+            "title": "中华人民共和国消防法",
+            "content_preview": "通工具的；\n\n（三）谎报火警的；（四）阻碍消防车、消防艇执行任务的；（五）阻碍消防救援机构的工作人员依法执行职务的。...",
+            "score": 0.9908776879310608
+          },
+          {
+            "title": "中华人民共和国消防法",
+            "content_preview": "## 第四十四条\n\n任何人发现火灾都应当立即报警。任何单位、个人都应当无偿为报警提供便利，不得阻拦报警。严禁谎报火警\n\n人员密集场所发生火灾，该场所的现场工作人员应当立即组织、引导在场人员疏散。\n\n任何单位发生火灾，必须立即组织力量扑救。邻近单位应当给予支援。...",
+            "score": 0.9483518004417419
+          }
+        ]
+      },
+      "retrieval_info": {
+        "total_docs": 2,
+        "response_time": 0.1378026008605957,
+        "error": null
+      }
+    },
+    {
+      "test_case": {
+        "id": "pen_003",
+        "query": "过失引起火灾的法律责任是什么？",
+        "expected_keywords": [
+          "十日以上十五日以下拘留",
+          "五百元以下罚款",
+          "警告"
+        ],
+        "expected_articles": [
+          "第六十四条"
+        ],
+        "category": "火灾责任",
+        "difficulty": "medium",
+        "query_type": "处罚",
+        "description": "测试对过失引起火灾责任的理解"
+      },
+      "metrics": {
+        "keyword_recall": 1.0,
+        "keyword_precision": 1.0,
+        "article_recall": 1.0,
+        "article_precision": 1.0,
+        "semantic_relevance": 0.9409467577934265,
+        "response_time": 0.13892292976379395,
+        "success_rate": 1.0
+      },
+      "detailed_analysis": {
+        "found_keywords": [
+          "十日以上十五日以下拘留",
+          "五百元以下罚款",
+          "警告"
+        ],
+        "found_articles": [
+          "第六十四条"
+        ],
+        "expected_keywords": [
+          "十日以上十五日以下拘留",
+          "五百元以下罚款",
+          "警告"
+        ],
+        "expected_articles": [
+          "第六十四条"
+        ],
+        "top_documents": [
+          {
+            "title": "中华人民共和国消防法",
+            "content_preview": "## 第六十四条\n\n违反本法规定，有下列行为之一，尚不构成犯罪的，处十日以上十五日以下拘留，可以并处五百元以下罚款；情节较轻的，处警告或者五百元以下罚款：\n\n（一）指使或者强令他人违反消防安全规定，冒险作业的；（二）过失引起火灾的；（三）在火灾发生后阻拦报警，或者负有报告职责的人员不及时报警的；（四）扰乱火灾现场秩序，或者...",
+            "score": 0.9409467577934265
+          }
+        ]
+      },
+      "retrieval_info": {
+        "total_docs": 1,
+        "response_time": 0.13892292976379395,
+        "error": null
+      }
+    },
+    {
+      "test_case": {
+        "id": "place_001",
+        "query": "易燃易爆危险品场所的设置要求是什么？",
+        "expected_keywords": [
+          "不得与居住场所",
+          "同一建筑物",
+          "安全距离",
+          "消防技术标准"
+        ],
+        "expected_articles": [
+          "第十九条",
+          "第二十二条"
+        ],
+        "category": "危险品场所",
+        "difficulty": "medium",
+        "query_type": "要求",
+        "description": "测试对危险品场所设置要求的理解"
+      },
+      "metrics": {
+        "keyword_recall": 1.0,
+        "keyword_precision": 1.0,
+        "article_recall": 1.0,
+        "article_precision": 0.6666666666666666,
+        "semantic_relevance": 0.9182216376066208,
+        "response_time": 0.13798189163208008,
+        "success_rate": 1.0
+      },
+      "detailed_analysis": {
+        "found_keywords": [
+          "不得与居住场所",
+          "同一建筑物",
+          "安全距离",
+          "消防技术标准"
+        ],
+        "found_articles": [
+          "第二十二条",
+          "第六十一条",
+          "第十九条"
+        ],
+        "expected_keywords": [
+          "不得与居住场所",
+          "同一建筑物",
+          "安全距离",
+          "消防技术标准"
+        ],
+        "expected_articles": [
+          "第十九条",
+          "第二十二条"
+        ],
+        "top_documents": [
+          {
+            "title": "中华人民共和国消防法",
+            "content_preview": "## 第十九条\n\n生产、储存、经营易燃易爆危险品的场所不得与居住场所设置在同一建筑物内，并应当与居住场所保持安全距离。\n\n生产、储存、经营其他物品的场所与居住场所设置在同一建筑物内的，应当符合国家工程建设消防技术标准。...",
+            "score": 0.9881154298782349
+          },
+          {
+            "title": "中华人民共和国消防法",
+            "content_preview": "## 第二十二条\n\n生产、储存、装卸易燃易爆危险品的工厂、仓库和专用车站、码头的设置，应当符合消防技术标准。易燃易爆气体和液体的充装站、供应站、调压站，应当设置在符合消防安全要求的位置，并符合防火防爆要求。...",
+            "score": 0.98179030418396
+          },
+          {
+            "title": "中华人民共和国消防法",
+            "content_preview": "## 第六十一条\n\n生产、储存、经营易燃易爆危险品的场所与居住场所设置在同一建筑物内，或者未与居住场所保持安全距离的，责令停产停业，并处五千元以上五万元以下罚款。\n\n生产、储存、经营其他物品的场所与居住场所设置在同一建筑物内，不符合消防技术标准的，依照前款规定处罚。...",
+            "score": 0.9109031558036804
+          }
+        ]
+      },
+      "retrieval_info": {
+        "total_docs": 4,
+        "response_time": 0.13798189163208008,
+        "error": null
+      }
+    },
+    {
+      "test_case": {
+        "id": "place_002",
+        "query": "大型群众性活动的消防安全要求有哪些？",
+        "expected_keywords": [
+          "安全许可",
+          "灭火和应急疏散预案",
+          "演练",
+          "消防设施",
+          "疏散通道"
+        ],
+        "expected_articles": [
+          "第二十条"
+        ],
+        "category": "群众活动",
+        "difficulty": "hard",
+        "query_type": "要求",
+        "description": "测试对大型活动消防要求的理解"
+      },
+      "metrics": {
+        "keyword_recall": 1.0,
+        "keyword_precision": 1.0,
+        "article_recall": 1.0,
+        "article_precision": 1.0,
+        "semantic_relevance": 0.9721235632896423,
+        "response_time": 0.13800621032714844,
+        "success_rate": 1.0
+      },
+      "detailed_analysis": {
+        "found_keywords": [
+          "安全许可",
+          "灭火和应急疏散预案",
+          "演练",
+          "消防设施",
+          "疏散通道"
+        ],
+        "found_articles": [
+          "第二十条"
+        ],
+        "expected_keywords": [
+          "安全许可",
+          "灭火和应急疏散预案",
+          "演练",
+          "消防设施",
+          "疏散通道"
+        ],
+        "expected_articles": [
+          "第二十条"
+        ],
+        "top_documents": [
+          {
+            "title": "中华人民共和国消防法",
+            "content_preview": "## 第二十条\n\n举办大型群众性活动，承办人应当依法向公安机关申请安全许可，制定灭火和应急疏散预案并组织演练，明确消防安全责任分工，确定消防安全管理人员，保持消防设施和消防器材配置齐全、完好有效，保证疏散通道、安全出口、疏散指示标志、应急照明和消防车通道符合消防技术标准和管理规定。...",
+            "score": 0.9721235632896423
+          }
+        ]
+      },
+      "retrieval_info": {
+        "total_docs": 1,
+        "response_time": 0.13800621032714844,
+        "error": null
+      }
+    },
+    {
+      "test_case": {
+        "id": "place_003",
+        "query": "禁止吸烟和使用明火的场所有哪些规定？",
+        "expected_keywords": [
+          "禁止吸烟",
+          "使用明火",
+          "审批手续",
+          "消防安全措施"
+        ],
+        "expected_articles": [
+          "第二十一条"
+        ],
+        "category": "明火管理",
+        "difficulty": "medium",
+        "query_type": "规定",
+        "description": "测试对明火使用规定的理解"
+      },
+      "metrics": {
+        "keyword_recall": 0.75,
+        "keyword_precision": 0.75,
+        "article_recall": 1.0,
+        "article_precision": 1.0,
+        "semantic_relevance": 0.9885908961296082,
+        "response_time": 0.13303160667419434,
+        "success_rate": 1.0
+      },
+      "detailed_analysis": {
+        "found_keywords": [
+          "使用明火",
+          "审批手续",
+          "消防安全措施"
+        ],
+        "found_articles": [
+          "第二十一条"
+        ],
+        "expected_keywords": [
+          "禁止吸烟",
+          "使用明火",
+          "审批手续",
+          "消防安全措施"
+        ],
+        "expected_articles": [
+          "第二十一条"
+        ],
+        "top_documents": [
+          {
+            "title": "中华人民共和国消防法",
+            "content_preview": "## 第二十一条\n\n禁止在具有火灾、爆炸危险的场所吸烟、使用明火。因施工等特殊情况需要使用明火作业的，应当按照规定事先办理审批手续，采取相应的消防安全措施；作业人员应当遵守消防安全规定\n\n进行电焊、气焊等具有火灾危险作业的人员和自动消防系统的操作人员，必须持证上岗，并遵守消防安全操作规程。...",
+            "score": 0.9885908961296082
+          }
+        ]
+      },
+      "retrieval_info": {
+        "total_docs": 1,
+        "response_time": 0.13303160667419434,
+        "error": null
+      }
+    },
+    {
+      "test_case": {
+        "id": "org_001",
+        "query": "国家综合性消防救援队的职责是什么？",
+        "expected_keywords": [
+          "火灾扑救",
+          "重大灾害事故",
+          "应急救援",
+          "抢救人员生命"
+        ],
+        "expected_articles": [
+          "第三十六条",
+          "第三十七条"
+        ],
+        "category": "救援队伍",
+        "difficulty": "medium",
+        "query_type": "职责",
+        "description": "测试对消防救援队职责的理解"
+      },
+      "metrics": {
+        "keyword_recall": 1.0,
+        "keyword_precision": 1.0,
+        "article_recall": 1.0,
+        "article_precision": 0.4,
+        "semantic_relevance": 0.9306178689002991,
+        "response_time": 0.13626503944396973,
+        "success_rate": 1.0
+      },
+      "detailed_analysis": {
+        "found_keywords": [
+          "火灾扑救",
+          "重大灾害事故",
+          "应急救援",
+          "抢救人员生命"
+        ],
+        "found_articles": [
+          "第三十七条",
+          "第三十八条",
+          "第四十六条",
+          "第四十九条",
+          "第三十六条"
+        ],
+        "expected_keywords": [
+          "火灾扑救",
+          "重大灾害事故",
+          "应急救援",
+          "抢救人员生命"
+        ],
+        "expected_articles": [
+          "第三十六条",
+          "第三十七条"
+        ],
+        "top_documents": [
+          {
+            "title": "中华人民共和国消防法",
+            "content_preview": "## 第三十八条\n\n国家综合性消防救援队、专职消防队应当充分发挥火灾扑救和应急救援专业力量的骨干作用；按照国家规定，组织实施专业技能训练，配备并维护保养装备器材，提高火灾扑救和应急救援的能力。...",
+            "score": 0.9814358353614807
+          },
+          {
+            "title": "中华人民共和国消防法",
+            "content_preview": "## 第三十七条\n\n国家综合性消防救援队、专职消防队按照国家规定承担重大灾害事故和其他以抢救人员生命为主的应急救援工作。...",
+            "score": 0.9672256708145142
+          },
+          {
+            "title": "中华人民共和国消防法",
+            "content_preview": "## 第四十九条\n\n国家综合性消防救援队、专职消防队扑救火灾、应急救援，不得收取任何费用。\n\n单位专职消防队、志愿消防队参加扑救外单位火灾所损耗的燃料、灭火剂和器材、装备等，由火灾发生地的人民政府给予补偿。...",
+            "score": 0.9148207306861877
+          }
+        ]
+      },
+      "retrieval_info": {
+        "total_docs": 5,
+        "response_time": 0.13626503944396973,
+        "error": null
+      }
+    },
+    {
+      "test_case": {
+        "id": "org_002",
+        "query": "专职消防队和志愿消防队的建立要求是什么？",
+        "expected_keywords": [
+          "乡镇人民政府",
+          "经济发展",
+          "消防工作需要",
+          "火灾扑救"
+        ],
+        "expected_articles": [
+          "第三十六条"
+        ],
+        "category": "消防队伍",
+        "difficulty": "medium",
+        "query_type": "要求",
+        "description": "测试对消防队伍建立要求的理解"
+      },
+      "metrics": {
+        "keyword_recall": 0.75,
+        "keyword_precision": 0.75,
+        "article_recall": 1.0,
+        "article_precision": 0.5,
+        "semantic_relevance": 0.9235019087791443,
+        "response_time": 0.13681435585021973,
+        "success_rate": 1.0
+      },
+      "detailed_analysis": {
+        "found_keywords": [
+          "乡镇人民政府",
+          "经济发展",
+          "火灾扑救"
+        ],
+        "found_articles": [
+          "第三十六条",
+          "第四十条"
+        ],
+        "expected_keywords": [
+          "乡镇人民政府",
+          "经济发展",
+          "消防工作需要",
+          "火灾扑救"
+        ],
+        "expected_articles": [
+          "第三十六条"
+        ],
+        "top_documents": [
+          {
+            "title": "中华人民共和国消防法",
+            "content_preview": "## 第三十六条\n\n县级以上地方人民政府应当按照国家规定建立国家综合性消防救援队、专职消防队，并按照国家标准配备消防装备，承担火灾扑救工作。\n\n乡镇人民政府应当根据当地经济发展和消防工作的需要，建立专职消防队、志愿消防队，承担火灾扑救工作。...",
+            "score": 0.9423195719718933
+          },
+          {
+            "title": "中华人民共和国消防法",
+            "content_preview": "## 第四十条\n\n专职消防队的建立，应当符合国家有关规定，并报当地消防救援机构验收。\n\n专职消防队的队员依法享受社会保险和福利待遇。...",
+            "score": 0.9046842455863953
+          }
+        ]
+      },
+      "retrieval_info": {
+        "total_docs": 2,
+        "response_time": 0.13681435585021973,
+        "error": null
+      }
+    },
+    {
+      "test_case": {
+        "id": "comp_001",
+        "query": "消防产品的质量监督体系是如何构建的？",
+        "expected_keywords": [
+          "国家标准",
+          "强制性产品认证",
+          "技术鉴定",
+          "质量监督部门",
+          "工商行政管理"
+        ],
+        "expected_articles": [
+          "第二十四条",
+          "第二十五条"
+        ],
+        "category": "质量监督",
+        "difficulty": "hard",
+        "query_type": "体系",
+        "description": "测试对消防产品质量监督体系的综合理解"
+      },
+      "metrics": {
+        "keyword_recall": 0.0,
+        "keyword_precision": 0.0,
+        "article_recall": 0.0,
+        "article_precision": 0.0,
+        "semantic_relevance": 0.0,
+        "response_time": 0.13621187210083008,
+        "success_rate": 1.0
+      },
+      "detailed_analysis": {
+        "found_keywords": [],
+        "found_articles": [],
+        "expected_keywords": [
+          "国家标准",
+          "强制性产品认证",
+          "技术鉴定",
+          "质量监督部门",
+          "工商行政管理"
+        ],
+        "expected_articles": [
+          "第二十四条",
+          "第二十五条"
+        ],
+        "top_documents": []
+      },
+      "retrieval_info": {
+        "total_docs": 0,
+        "response_time": 0.13621187210083008,
+        "error": null
+      }
+    },
+    {
+      "test_case": {
+        "id": "comp_002",
+        "query": "建筑消防设施的全生命周期管理包括哪些环节？",
+        "expected_keywords": [
+          "配置",
+          "设置",
+          "检验",
+          "维修",
+          "检测",
+          "完好有效"
+        ],
+        "expected_articles": [
+          "第十六条"
+        ],
+        "category": "设施管理",
+        "difficulty": "hard",
+        "query_type": "管理",
+        "description": "测试对消防设施全生命周期管理的理解"
+      },
+      "metrics": {
+        "keyword_recall": 0.0,
+        "keyword_precision": 0.0,
+        "article_recall": 0.0,
+        "article_precision": 0.0,
+        "semantic_relevance": 0.0,
+        "response_time": 0.13350319862365723,
+        "success_rate": 1.0
+      },
+      "detailed_analysis": {
+        "found_keywords": [],
+        "found_articles": [],
+        "expected_keywords": [
+          "配置",
+          "设置",
+          "检验",
+          "维修",
+          "检测",
+          "完好有效"
+        ],
+        "expected_articles": [
+          "第十六条"
+        ],
+        "top_documents": []
+      },
+      "retrieval_info": {
+        "total_docs": 0,
+        "response_time": 0.13350319862365723,
+        "error": null
+      }
+    },
+    {
+      "test_case": {
+        "id": "comp_003",
+        "query": "消防宣传教育的责任主体和实施方式有哪些？",
+        "expected_keywords": [
+          "人民政府",
+          "应急管理部门",
+          "教育部门",
+          "工会",
+          "共青团",
+          "妇联",
+          "村委会"
+        ],
+        "expected_articles": [
+          "第六条"
+        ],
+        "category": "宣传教育",
+        "difficulty": "hard",
+        "query_type": "体系",
+        "description": "测试对消防宣传教育体系的综合理解"
+      },
+      "metrics": {
+        "keyword_recall": 0.2857142857142857,
+        "keyword_precision": 0.2857142857142857,
+        "article_recall": 1.0,
+        "article_precision": 1.0,
+        "semantic_relevance": 0.9397860765457153,
+        "response_time": 0.1367795467376709,
+        "success_rate": 1.0
+      },
+      "detailed_analysis": {
+        "found_keywords": [
+          "人民政府",
+          "应急管理部门"
+        ],
+        "found_articles": [
+          "第六条"
+        ],
+        "expected_keywords": [
+          "人民政府",
+          "应急管理部门",
+          "教育部门",
+          "工会",
+          "共青团",
+          "妇联",
+          "村委会"
+        ],
+        "expected_articles": [
+          "第六条"
+        ],
+        "top_documents": [
+          {
+            "title": "中华人民共和国消防法",
+            "content_preview": "## 第六条\n\n各级人民政府应当组织开展经常性的消防宣传教育，提高公民的消防安全意识。\n\n机关、团体、企业、事业等单位，应当加强对本单位人员的消防宣传教育。\n\n应急管理部门及消防救援机构应当加强消防法律、法规的宣传，并督促、指导、协助有关单位做好消防宣传教育工作。...",
+            "score": 0.9747866988182068
+          },
+          {
+            "title": "中华人民共和国消防法",
+            "content_preview": "村民委员会、居民委员会应当协助人民政府以及公安机关、应急管理等部门，加强消防宣传教育。...",
+            "score": 0.9047854542732239
+          }
+        ]
+      },
+      "retrieval_info": {
+        "total_docs": 2,
+        "response_time": 0.1367795467376709,
+        "error": null
+      }
+    },
+    {
+      "test_case": {
+        "id": "edge_001",
+        "query": "森林和草原的消防工作适用消防法吗？",
+        "expected_keywords": [
+          "森林",
+          "草原",
+          "消防工作",
+          "另有规定",
+          "从其规定"
+        ],
+        "expected_articles": [
+          "第四条"
+        ],
+        "category": "适用范围",
+        "difficulty": "hard",
+        "query_type": "适用性",
+        "description": "测试对法律适用范围边界的理解"
+      },
+      "metrics": {
+        "keyword_recall": 1.0,
+        "keyword_precision": 1.0,
+        "article_recall": 0.0,
+        "article_precision": 0.0,
+        "semantic_relevance": 0.9681087136268616,
+        "response_time": 0.1363668441772461,
+        "success_rate": 1.0
+      },
+      "detailed_analysis": {
+        "found_keywords": [
+          "森林",
+          "草原",
+          "消防工作",
+          "另有规定",
+          "从其规定"
+        ],
+        "found_articles": [
+          "第三十一条"
+        ],
+        "expected_keywords": [
+          "森林",
+          "草原",
+          "消防工作",
+          "另有规定",
+          "从其规定"
+        ],
+        "expected_articles": [
+          "第四条"
+        ],
+        "top_documents": [
+          {
+            "title": "中华人民共和国消防法",
+            "content_preview": "县级以上人民政府其他有关部门在各自的职责范围内，依照本法和其他相关法律、法规的规定做好消防工作。\n\n法律、行政法规对森林、草原的消防工作另有规定的，从其规定。...",
+            "score": 0.9930152893066406
+          },
+          {
+            "title": "中华人民共和国消防法",
+            "content_preview": "## 第三十一条\n\n在农业收获季节、森林和草原防火期间、重大节假日期间以及火灾多发季节，地方各级人民政府应当组织开展有针对性的消防宣传教育，采取防火措施，进行消防安全检查。...",
+            "score": 0.9432021379470825
+          }
+        ]
+      },
+      "retrieval_info": {
+        "total_docs": 2,
+        "response_time": 0.1363668441772461,
+        "error": null
+      }
+    },
+    {
+      "test_case": {
+        "id": "edge_002",
+        "query": "军事设施的消防工作由谁负责？",
+        "expected_keywords": [
+          "军事设施",
+          "主管单位",
+          "监督管理"
+        ],
+        "expected_articles": [
+          "第四条"
+        ],
+        "category": "特殊管辖",
+        "difficulty": "medium",
+        "query_type": "管辖",
+        "description": "测试对特殊领域管辖权的理解"
+      },
+      "metrics": {
+        "keyword_recall": 1.0,
+        "keyword_precision": 1.0,
+        "article_recall": 1.0,
+        "article_precision": 1.0,
+        "semantic_relevance": 0.9709393382072449,
+        "response_time": 0.13401293754577637,
+        "success_rate": 1.0
+      },
+      "detailed_analysis": {
+        "found_keywords": [
+          "军事设施",
+          "主管单位",
+          "监督管理"
+        ],
+        "found_articles": [
+          "第四条"
+        ],
+        "expected_keywords": [
+          "军事设施",
+          "主管单位",
+          "监督管理"
+        ],
+        "expected_articles": [
+          "第四条"
+        ],
+        "top_documents": [
+          {
+            "title": "中华人民共和国消防法",
+            "content_preview": "## 第四条\n\n国务院应急管理部门对全国的消防工作实施监督管理。县级以上地方人民政府应急管理部门对本行政区域内的消防工作实施监督管理，并由本级人民政府消防救援机构负责实施。军事设施的消防工作，由其主管单位监督管理，消防救援机构协助：矿井地下部分、核电厂、海上石油天然气设施的消防工作，由其主管单位\n\n监督管理。...",
+            "score": 0.9709393382072449
+          }
+        ]
+      },
+      "retrieval_info": {
+        "total_docs": 1,
+        "response_time": 0.13401293754577637,
+        "error": null
+      }
+    },
+    {
+      "test_case": {
+        "id": "edge_003",
+        "query": "消防法什么时候开始施行？",
+        "expected_keywords": [
+          "2009年5月1日",
+          "施行"
+        ],
+        "expected_articles": [
+          "第七十四条"
+        ],
+        "category": "法律效力",
+        "difficulty": "easy",
+        "query_type": "时效",
+        "description": "测试对法律生效时间的理解"
+      },
+      "metrics": {
+        "keyword_recall": 1.0,
+        "keyword_precision": 1.0,
+        "article_recall": 1.0,
+        "article_precision": 1.0,
+        "semantic_relevance": 0.9940470457077026,
+        "response_time": 0.13179516792297363,
+        "success_rate": 1.0
+      },
+      "detailed_analysis": {
+        "found_keywords": [
+          "2009年5月1日",
+          "施行"
+        ],
+        "found_articles": [
+          "第七十四条"
+        ],
+        "expected_keywords": [
+          "2009年5月1日",
+          "施行"
+        ],
+        "expected_articles": [
+          "第七十四条"
+        ],
+        "top_documents": [
+          {
+            "title": "中华人民共和国消防法",
+            "content_preview": "## 第七十四条\n\n本法自2009年5月1日起施行。...",
+            "score": 0.9940470457077026
+          }
+        ]
+      },
+      "retrieval_info": {
+        "total_docs": 1,
+        "response_time": 0.13179516792297363,
+        "error": null
+      }
+    },
+    {
+      "test_case": {
+        "id": "prev_001",
+        "query": "消防规划应该包括哪些内容？",
+        "expected_keywords": [
+          "消防安全布局",
+          "消防站",
+          "消防供水",
+          "消防通信",
+          "消防车通道",
+          "消防装备"
+        ],
+        "expected_articles": [
+          "第八条"
+        ],
+        "category": "消防规划",
+        "difficulty": "medium",
+        "query_type": "内容",
+        "description": "测试对消防规划内容的理解"
+      },
+      "metrics": {
+        "keyword_recall": 1.0,
+        "keyword_precision": 1.0,
+        "article_recall": 1.0,
+        "article_precision": 1.0,
+        "semantic_relevance": 0.9160491228103638,
+        "response_time": 0.13926267623901367,
+        "success_rate": 1.0
+      },
+      "detailed_analysis": {
+        "found_keywords": [
+          "消防安全布局",
+          "消防站",
+          "消防供水",
+          "消防通信",
+          "消防车通道",
+          "消防装备"
+        ],
+        "found_articles": [
+          "第八条"
+        ],
+        "expected_keywords": [
+          "消防安全布局",
+          "消防站",
+          "消防供水",
+          "消防通信",
+          "消防车通道",
+          "消防装备"
+        ],
+        "expected_articles": [
+          "第八条"
+        ],
+        "top_documents": [
+          {
+            "title": "中华人民共和国消防法",
+            "content_preview": "## 第八条\n\n地方各级人民政府应当将包括消防安全布局、消防站、消防供水、消防通信、消防车通道、消防装备等内容的消防规划纳入城乡规划，并负责组织实施\n\n城乡消防安全布局不符合消防安全要求的，应当调整、完善；公共消防设施、消防装备不足或者不适应实际需要的，应当增建、改建、配置或者进行技术改造。...",
+            "score": 0.9160491228103638
+          }
+        ]
+      },
+      "retrieval_info": {
+        "total_docs": 1,
+        "response_time": 0.13926267623901367,
+        "error": null
+      }
+    },
+    {
+      "test_case": {
+        "id": "prev_002",
+        "query": "建设工程消防设计必须符合什么标准？",
+        "expected_keywords": [
+          "国家工程建设消防技术标准",
+          "建设",
+          "设计",
+          "施工",
+          "工程监理"
+        ],
+        "expected_articles": [
+          "第九条"
+        ],
+        "category": "建设标准",
+        "difficulty": "easy",
+        "query_type": "标准",
+        "description": "测试对建设工程消防设计标准的理解"
+      },
+      "metrics": {
+        "keyword_recall": 1.0,
+        "keyword_precision": 1.0,
+        "article_recall": 1.0,
+        "article_precision": 0.25,
+        "semantic_relevance": 0.8772320508956909,
+        "response_time": 0.14052176475524902,
+        "success_rate": 1.0
+      },
+      "detailed_analysis": {
+        "found_keywords": [
+          "国家工程建设消防技术标准",
+          "建设",
+          "设计",
+          "施工",
+          "工程监理"
+        ],
+        "found_articles": [
+          "第九条",
+          "第十二条",
+          "第十条",
+          "第十一条"
+        ],
+        "expected_keywords": [
+          "国家工程建设消防技术标准",
+          "建设",
+          "设计",
+          "施工",
+          "工程监理"
+        ],
+        "expected_articles": [
+          "第九条"
+        ],
+        "top_documents": [
+          {
+            "title": "中华人民共和国消防法",
+            "content_preview": "## 第九条\n\n建设工程的消防设计、施工必须符合国家工程建设消防技术标准。建设、设计、施工、工程监理等单位依法对建设工程的消防设计、施工质量负责。...",
+            "score": 0.9959222078323364
+          },
+          {
+            "title": "中华人民共和国消防法",
+            "content_preview": "## 第十条\n\n对按照国家工程建设消防技术标准需要进行消防设计的建设工程，实行建设工程消防设计审查验收制度。...",
+            "score": 0.9734635353088379
+          },
+          {
+            "title": "中华人民共和国消防法",
+            "content_preview": "制性要求进行消防设计的；（三）建筑施工企业不按照消防设计文件和消防技术标准施工，降低消防施工质量的；（四）工程监理单位与建设单位或者建筑施工企业串通，弄虚作假，降低消防施工质量的。...",
+            "score": 0.8842099905014038
+          }
+        ]
+      },
+      "retrieval_info": {
+        "total_docs": 5,
+        "response_time": 0.14052176475524902,
+        "error": null
+      }
+    },
+    {
+      "test_case": {
+        "id": "prev_003",
+        "query": "特殊建设工程的消防设计审查由谁负责？",
+        "expected_keywords": [
+          "住房和城乡建设主管部门",
+          "消防设计文件",
+          "审查",
+          "特殊建设工程"
+        ],
+        "expected_articles": [
+          "第十一条"
+        ],
+        "category": "审查制度",
+        "difficulty": "medium",
+        "query_type": "程序",
+        "description": "测试对特殊建设工程审查程序的理解"
+      },
+      "metrics": {
+        "keyword_recall": 1.0,
+        "keyword_precision": 1.0,
+        "article_recall": 1.0,
+        "article_precision": 0.3333333333333333,
+        "semantic_relevance": 0.9505953391393026,
+        "response_time": 0.13227534294128418,
+        "success_rate": 1.0
+      },
+      "detailed_analysis": {
+        "found_keywords": [
+          "住房和城乡建设主管部门",
+          "消防设计文件",
+          "审查",
+          "特殊建设工程"
+        ],
+        "found_articles": [
+          "第十二条",
+          "第十一条",
+          "第十四条"
+        ],
+        "expected_keywords": [
+          "住房和城乡建设主管部门",
+          "消防设计文件",
+          "审查",
+          "特殊建设工程"
+        ],
+        "expected_articles": [
+          "第十一条"
+        ],
+        "top_documents": [
+          {
+            "title": "中华人民共和国消防法",
+            "content_preview": "## 第十一条\n\n国务院住房和城乡建设主管部门规定的特殊建设工程，建设单位应当将消防设计文件报送住房和城乡建设主管部门审查，住房和城乡建设主管部门依法对审查的结果负责。\n\n前款规定以外的其他建设工程，建设单位申请领取施工许可证或者申请批准开工报告时应当提供满足施工需要的消防设计图纸及技术资料。...",
+            "score": 0.9877967238426208
+          },
+          {
+            "title": "中华人民共和国消防法",
+            "content_preview": "## 第十四条\n\n建设工程消防设计审查、消防验收、备案和抽查的具体办法，由国务院住房和城乡建设主管部门规定。...",
+            "score": 0.9569590091705322
+          },
+          {
+            "title": "中华人民共和国消防法",
+            "content_preview": "## 第十二条\n\n特殊建设工程未经消防设计审查或者审查不合格的，建设单位、施工单位不得施工；其他建设工程，建设单位未提供满足施工需要的消防设计图纸及技术资料的，有关部门不得发放施工许可证或者批准开工报告。...",
+            "score": 0.9070302844047546
+          }
+        ]
+      },
+      "retrieval_info": {
+        "total_docs": 3,
+        "response_time": 0.13227534294128418,
+        "error": null
+      }
+    },
+    {
+      "test_case": {
+        "id": "prev_004",
+        "query": "单位应当履行哪些消防安全职责？",
+        "expected_keywords": [
+          "消防安全责任制",
+          "消防安全制度",
+          "灭火和应急疏散预案",
+          "消防设施",
+          "防火检查"
+        ],
+        "expected_articles": [
+          "第十六条"
+        ],
+        "category": "单位职责",
+        "difficulty": "hard",
+        "query_type": "职责",
+        "description": "测试对单位消防安全职责的全面理解"
+      },
+      "metrics": {
+        "keyword_recall": 0.8,
+        "keyword_precision": 0.8,
+        "article_recall": 1.0,
+        "article_precision": 0.3333333333333333,
+        "semantic_relevance": 0.9746172428131104,
+        "response_time": 0.13468384742736816,
+        "success_rate": 1.0
+      },
+      "detailed_analysis": {
+        "found_keywords": [
+          "消防安全责任制",
+          "消防安全制度",
+          "灭火和应急疏散预案",
+          "消防设施"
+        ],
+        "found_articles": [
+          "第五条",
+          "第十七条",
+          "第十六条"
+        ],
+        "expected_keywords": [
+          "消防安全责任制",
+          "消防安全制度",
+          "灭火和应急疏散预案",
+          "消防设施",
+          "防火检查"
+        ],
+        "expected_articles": [
+          "第十六条"
+        ],
+        "top_documents": [
+          {
+            "title": "中华人民共和国消防法",
+            "content_preview": "火检查，及时消除火灾隐患；\n\n（六）组织进行有针对性的消防演练；\n\n（七）法律、法规规定的其他消防安全职责。\n\n单位的主要负责人是本单位的消防安全责任人。...",
+            "score": 0.9899032115936279
+          },
+          {
+            "title": "中华人民共和国消防法",
+            "content_preview": "## 第十七条\n\n县级以上地方人民政府消防救援机构应当将发生火灾可能性较大以及发生火灾可能造成重大的人身伤亡或者财产损失的单位，确定为本行政区域内的消防安全重点单位，并由应急管理部门报本级人民政府备案\n\n消防安全重点单位除应当履行本法第十六条规定的职责外，还应当履行下列消防安全职责：\n\n（一）确定消防安全管理人，组织实施本单位的消防安...",
+            "score": 0.9887117147445679
+          },
+          {
+            "title": "中华人民共和国消防法",
+            "content_preview": "## 第十六条\n\n机关、团体、企业、事业等单位应当履行下列消防安全职责：\n\n（一）落实消防安全责任制，制定本单位的消防安全制度、消防安全操作规程，制定灭火和应急疏散预案；\n\n（二）按照国家标准、行业标准配置消防设施、器材，设置消防安全标志，并定期组织检验、维修，确保完好有效；\n\n（三）对建筑消防设施每年至少进行一次全面检测，确保完好...",
+            "score": 0.9812620282173157
+          }
+        ]
+      },
+      "retrieval_info": {
+        "total_docs": 5,
+        "response_time": 0.13468384742736816,
+        "error": null
+      }
+    },
+    {
+      "test_case": {
+        "id": "prev_005",
+        "query": "消防安全重点单位除了一般职责外还要履行什么职责？",
+        "expected_keywords": [
+          "消防安全管理人",
+          "消防档案",
+          "每日防火巡查",
+          "岗前消防安全培训"
+        ],
+        "expected_articles": [
+          "第十七条"
+        ],
+        "category": "重点单位",
+        "difficulty": "hard",
+        "query_type": "职责",
+        "description": "测试对消防安全重点单位特殊职责的理解"
+      },
+      "metrics": {
+        "keyword_recall": 0.25,
+        "keyword_precision": 0.25,
+        "article_recall": 1.0,
+        "article_precision": 0.5,
+        "semantic_relevance": 0.9970651268959045,
+        "response_time": 0.13227629661560059,
+        "success_rate": 1.0
+      },
+      "detailed_analysis": {
+        "found_keywords": [
+          "消防安全管理人"
+        ],
+        "found_articles": [
+          "第十七条",
+          "第十六条"
+        ],
+        "expected_keywords": [
+          "消防安全管理人",
+          "消防档案",
+          "每日防火巡查",
+          "岗前消防安全培训"
+        ],
+        "expected_articles": [
+          "第十七条"
+        ],
+        "top_documents": [
+          {
+            "title": "中华人民共和国消防法",
+            "content_preview": "## 第十七条\n\n县级以上地方人民政府消防救援机构应当将发生火灾可能性较大以及发生火灾可能造成重大的人身伤亡或者财产损失的单位，确定为本行政区域内的消防安全重点单位，并由应急管理部门报本级人民政府备案\n\n消防安全重点单位除应当履行本法第十六条规定的职责外，还应当履行下列消防安全职责：\n\n（一）确定消防安全管理人，组织实施本单位的消防安...",
+            "score": 0.9970651268959045
+          }
+        ]
+      },
+      "retrieval_info": {
+        "total_docs": 1,
+        "response_time": 0.13227629661560059,
+        "error": null
+      }
+    },
+    {
+      "test_case": {
+        "id": "prev_006",
+        "query": "建筑材料和室内装修材料的防火性能要求是什么？",
+        "expected_keywords": [
+          "建筑构件",
+          "建筑材料",
+          "室内装修",
+          "装饰材料",
+          "国家标准",
+          "行业标准",
+          "不燃",
+          "难燃材料"
+        ],
+        "expected_articles": [
+          "第二十六条"
+        ],
+        "category": "材料标准",
+        "difficulty": "medium",
+        "query_type": "要求",
+        "description": "测试对建筑材料防火性能要求的理解"
+      },
+      "metrics": {
+        "keyword_recall": 1.0,
+        "keyword_precision": 1.0,
+        "article_recall": 1.0,
+        "article_precision": 1.0,
+        "semantic_relevance": 0.9952463507652283,
+        "response_time": 0.13216543197631836,
+        "success_rate": 1.0
+      },
+      "detailed_analysis": {
+        "found_keywords": [
+          "建筑构件",
+          "建筑材料",
+          "室内装修",
+          "装饰材料",
+          "国家标准",
+          "行业标准",
+          "不燃",
+          "难燃材料"
+        ],
+        "found_articles": [
+          "第二十六条"
+        ],
+        "expected_keywords": [
+          "建筑构件",
+          "建筑材料",
+          "室内装修",
+          "装饰材料",
+          "国家标准",
+          "行业标准",
+          "不燃",
+          "难燃材料"
+        ],
+        "expected_articles": [
+          "第二十六条"
+        ],
+        "top_documents": [
+          {
+            "title": "中华人民共和国消防法",
+            "content_preview": "## 第二十六条\n\n建筑构件、建筑材料和室内装修、装饰材料的防火性能必须符合国家标准；没有国家标准的，必须符合行业标准。\n\n人员密集场所室内装修、装饰，应当按照消防技术标准的要求，使用不燃、难燃材料。...",
+            "score": 0.9952463507652283
+          }
+        ]
+      },
+      "retrieval_info": {
+        "total_docs": 1,
+        "response_time": 0.13216543197631836,
+        "error": null
+      }
+    },
+    {
+      "test_case": {
+        "id": "prev_007",
+        "query": "电器产品和燃气用具的消防安全要求有哪些？",
+        "expected_keywords": [
+          "电器产品",
+          "燃气用具",
+          "产品标准",
+          "安装",
+          "使用",
+          "线路",
+          "管路",
+          "维护保养",
+          "检测"
+        ],
+        "expected_articles": [
+          "第二十七条"
+        ],
+        "category": "产品安全",
+        "difficulty": "medium",
+        "query_type": "要求",
+        "description": "测试对电器燃气产品消防要求的理解"
+      },
+      "metrics": {
+        "keyword_recall": 1.0,
+        "keyword_precision": 1.0,
+        "article_recall": 1.0,
+        "article_precision": 0.5,
+        "semantic_relevance": 0.9065521955490112,
+        "response_time": 0.13653230667114258,
+        "success_rate": 1.0
+      },
+      "detailed_analysis": {
+        "found_keywords": [
+          "电器产品",
+          "燃气用具",
+          "产品标准",
+          "安装",
+          "使用",
+          "线路",
+          "管路",
+          "维护保养",
+          "检测"
+        ],
+        "found_articles": [
+          "第六十六条",
+          "第二十七条"
+        ],
+        "expected_keywords": [
+          "电器产品",
+          "燃气用具",
+          "产品标准",
+          "安装",
+          "使用",
+          "线路",
+          "管路",
+          "维护保养",
+          "检测"
+        ],
+        "expected_articles": [
+          "第二十七条"
+        ],
+        "top_documents": [
+          {
+            "title": "中华人民共和国消防法",
+            "content_preview": "## 第二十七条\n\n电器产品、燃气用具的产品标准，应当符合消防安全的要求。\n\n电器产品、燃气用具的安装、使用及其线路、管路的设计、敷设、维护保养、检测，必须符合消防技术标准和管理规定。...",
+            "score": 0.9915646314620972
+          },
+          {
+            "title": "中华人民共和国消防法",
+            "content_preview": "## 第六十六条\n\n电器产品、燃气用具的安装、使用及其线路、管路的设计、敷设、维护保养、检测不符合消防技术标准和管理规定的，责令限期改正；逾期不改正的，责令停止使用，可以并处一千元以上五千元以下罚款。...",
+            "score": 0.8215397596359253
+          }
+        ]
+      },
+      "retrieval_info": {
+        "total_docs": 2,
+        "response_time": 0.13653230667114258,
+        "error": null
+      }
+    },
+    {
+      "test_case": {
+        "id": "prev_008",
+        "query": "哪些行为是被禁止的消防违法行为？",
+        "expected_keywords": [
+          "损坏",
+          "挪用",
+          "拆除",
+          "停用",
+          "消防设施",
+          "埋压",
+          "圈占",
+          "遮挡",
+          "消火栓",
+          "占用",
+          "堵塞",
+          "封闭",
+          "疏散通道"
+        ],
+        "expected_articles": [
+          "第二十八条"
+        ],
+        "category": "禁止行为",
+        "difficulty": "medium",
+        "query_type": "禁止",
+        "description": "测试对消防违法行为的识别"
+      },
+      "metrics": {
+        "keyword_recall": 0.0,
+        "keyword_precision": 0.0,
+        "article_recall": 0.0,
+        "article_precision": 0.0,
+        "semantic_relevance": 0.7333540320396423,
+        "response_time": 0.13785862922668457,
+        "success_rate": 1.0
+      },
+      "detailed_analysis": {
+        "found_keywords": [],
+        "found_articles": [
+          "第六十四条"
+        ],
+        "expected_keywords": [
+          "损坏",
+          "挪用",
+          "拆除",
+          "停用",
+          "消防设施",
+          "埋压",
+          "圈占",
+          "遮挡",
+          "消火栓",
+          "占用",
+          "堵塞",
+          "封闭",
+          "疏散通道"
+        ],
+        "expected_articles": [
+          "第二十八条"
+        ],
+        "top_documents": [
+          {
+            "title": "中华人民共和国消防法",
+            "content_preview": "## 第六十四条\n\n违反本法规定，有下列行为之一，尚不构成犯罪的，处十日以上十五日以下拘留，可以并处五百元以下罚款；情节较轻的，处警告或者五百元以下罚款：\n\n（一）指使或者强令他人违反消防安全规定，冒险作业的；（二）过失引起火灾的；（三）在火灾发生后阻拦报警，或者负有报告职责的人员不及时报警的；（四）扰乱火灾现场秩序，或者...",
+            "score": 0.7333540320396423
+          }
+        ]
+      },
+      "retrieval_info": {
+        "total_docs": 1,
+        "response_time": 0.13785862922668457,
+        "error": null
+      }
+    },
+    {
+      "test_case": {
+        "id": "fight_001",
+        "query": "发现火灾时应该怎么办？",
+        "expected_keywords": [
+          "立即报警",
+          "无偿",
+          "便利",
+          "不得阻拦",
+          "严禁谎报火警"
+        ],
+        "expected_articles": [
+          "第四十四条"
+        ],
+        "category": "火灾报警",
+        "difficulty": "easy",
+        "query_type": "程序",
+        "description": "测试对火灾报警程序的理解"
+      },
+      "metrics": {
+        "keyword_recall": 1.0,
+        "keyword_precision": 1.0,
+        "article_recall": 1.0,
+        "article_precision": 1.0,
+        "semantic_relevance": 0.9713620543479919,
+        "response_time": 0.13659024238586426,
+        "success_rate": 1.0
+      },
+      "detailed_analysis": {
+        "found_keywords": [
+          "立即报警",
+          "无偿",
+          "便利",
+          "不得阻拦",
+          "严禁谎报火警"
+        ],
+        "found_articles": [
+          "第四十四条"
+        ],
+        "expected_keywords": [
+          "立即报警",
+          "无偿",
+          "便利",
+          "不得阻拦",
+          "严禁谎报火警"
+        ],
+        "expected_articles": [
+          "第四十四条"
+        ],
+        "top_documents": [
+          {
+            "title": "中华人民共和国消防法",
+            "content_preview": "## 第四十四条\n\n任何人发现火灾都应当立即报警。任何单位、个人都应当无偿为报警提供便利，不得阻拦报警。严禁谎报火警\n\n人员密集场所发生火灾，该场所的现场工作人员应当立即组织、引导在场人员疏散。\n\n任何单位发生火灾，必须立即组织力量扑救。邻近单位应当给予支援。...",
+            "score": 0.9713620543479919
+          }
+        ]
+      },
+      "retrieval_info": {
+        "total_docs": 1,
+        "response_time": 0.13659024238586426,
+        "error": null
+      }
+    },
+    {
+      "test_case": {
+        "id": "fight_002",
+        "query": "人员密集场所发生火灾时现场工作人员应该做什么？",
+        "expected_keywords": [
+          "现场工作人员",
+          "立即组织",
+          "引导",
+          "在场人员疏散"
+        ],
+        "expected_articles": [
+          "第四十四条"
+        ],
+        "category": "应急疏散",
+        "difficulty": "medium",
+        "query_type": "程序",
+        "description": "测试对人员密集场所应急疏散的理解"
+      },
+      "metrics": {
+        "keyword_recall": 1.0,
+        "keyword_precision": 1.0,
+        "article_recall": 1.0,
+        "article_precision": 0.5,
+        "semantic_relevance": 0.9935218095779419,
+        "response_time": 0.13617372512817383,
+        "success_rate": 1.0
+      },
+      "detailed_analysis": {
+        "found_keywords": [
+          "现场工作人员",
+          "立即组织",
+          "引导",
+          "在场人员疏散"
+        ],
+        "found_articles": [
+          "第四十四条",
+          "第六十八条"
+        ],
+        "expected_keywords": [
+          "现场工作人员",
+          "立即组织",
+          "引导",
+          "在场人员疏散"
+        ],
+        "expected_articles": [
+          "第四十四条"
+        ],
+        "top_documents": [
+          {
+            "title": "中华人民共和国消防法",
+            "content_preview": "## 第六十八条\n\n人员密集场所发生火灾，该场所的现场工作人员不履行组织、引导在场人员疏散的义务，情节严重，尚不构成犯罪的，处五日以上十日以下拘留。...",
+            "score": 0.9943602681159973
+          },
+          {
+            "title": "中华人民共和国消防法",
+            "content_preview": "## 第四十四条\n\n任何人发现火灾都应当立即报警。任何单位、个人都应当无偿为报警提供便利，不得阻拦报警。严禁谎报火警\n\n人员密集场所发生火灾，该场所的现场工作人员应当立即组织、引导在场人员疏散。\n\n任何单位发生火灾，必须立即组织力量扑救。邻近单位应当给予支援。...",
+            "score": 0.9926833510398865
+          }
+        ]
+      },
+      "retrieval_info": {
+        "total_docs": 2,
+        "response_time": 0.13617372512817383,
+        "error": null
+      }
+    },
+    {
+      "test_case": {
+        "id": "fight_003",
+        "query": "火灾现场总指挥有哪些权力？",
+        "expected_keywords": [
+          "使用各种水源",
+          "截断电力",
+          "划定警戒区",
+          "交通管制",
+          "利用临近建筑物",
+          "拆除",
+          "破损",
+          "调动供水"
+        ],
+        "expected_articles": [
+          "第四十五条"
+        ],
+        "category": "现场指挥",
+        "difficulty": "hard",
+        "query_type": "权力",
+        "description": "测试对火灾现场指挥权力的理解"
+      },
+      "metrics": {
+        "keyword_recall": 0.625,
+        "keyword_precision": 0.625,
+        "article_recall": 1.0,
+        "article_precision": 1.0,
+        "semantic_relevance": 0.9432791471481323,
+        "response_time": 0.13053345680236816,
+        "success_rate": 1.0
+      },
+      "detailed_analysis": {
+        "found_keywords": [
+          "使用各种水源",
+          "截断电力",
+          "划定警戒区",
+          "交通管制",
+          "利用临近建筑物"
+        ],
+        "found_articles": [
+          "第四十五条"
+        ],
+        "expected_keywords": [
+          "使用各种水源",
+          "截断电力",
+          "划定警戒区",
+          "交通管制",
+          "利用临近建筑物",
+          "拆除",
+          "破损",
+          "调动供水"
+        ],
+        "expected_articles": [
+          "第四十五条"
+        ],
+        "top_documents": [
+          {
+            "title": "中华人民共和国消防法",
+            "content_preview": "## 第四十五条\n\n消防救援机构统一组织和指挥火灾现场扑救，应当优先保障遇险人员的生命安全。\n\n火灾现场总指挥根据扑救火灾的需要，有权决定下列事项：\n\n（一）使用各种水源；（二）截断电力、可燃气体和可燃液体的输送，限制用火用电；（三）划定警戒区，实行局部交通管制；（四）利用临近建筑物和有关设施；（五）为了抢救人员和重要物资，...",
+            "score": 0.9432791471481323
+          }
+        ]
+      },
+      "retrieval_info": {
+        "total_docs": 1,
+        "response_time": 0.13053345680236816,
+        "error": null
+      }
+    },
+    {
+      "test_case": {
+        "id": "fight_004",
+        "query": "消防车执行任务时享有哪些特殊权利？",
+        "expected_keywords": [
+          "不受行驶速度",
+          "行驶路线",
+          "行驶方向",
+          "指挥信号",
+          "让行",
+          "免收车辆通行费"
+        ],
+        "expected_articles": [
+          "第四十七条"
+        ],
+        "category": "特殊权利",
+        "difficulty": "medium",
+        "query_type": "权利",
+        "description": "测试对消防车特殊权利的理解"
+      },
+      "metrics": {
+        "keyword_recall": 1.0,
+        "keyword_precision": 1.0,
+        "article_recall": 1.0,
+        "article_precision": 1.0,
+        "semantic_relevance": 0.8540439009666443,
+        "response_time": 0.1317894458770752,
+        "success_rate": 1.0
+      },
+      "detailed_analysis": {
+        "found_keywords": [
+          "不受行驶速度",
+          "行驶路线",
+          "行驶方向",
+          "指挥信号",
+          "让行",
+          "免收车辆通行费"
+        ],
+        "found_articles": [
+          "第四十七条"
+        ],
+        "expected_keywords": [
+          "不受行驶速度",
+          "行驶路线",
+          "行驶方向",
+          "指挥信号",
+          "让行",
+          "免收车辆通行费"
+        ],
+        "expected_articles": [
+          "第四十七条"
+        ],
+        "top_documents": [
+          {
+            "title": "中华人民共和国消防法",
+            "content_preview": "## 第四十七条\n\n消防车、消防艇前往执行火灾扑救或者应急救援任务，在确保安全的前提下，不受行驶速度、行驶路线、行驶方向和指挥信号的限制，其他车辆、船舶以及行人应当让行，不得穿插超越；收费公路、桥梁免收车辆通行费。交通管理指挥人员应当保证消防车、消防艇迅速通行。...",
+            "score": 0.8540439009666443
+          }
+        ]
+      },
+      "retrieval_info": {
+        "total_docs": 1,
+        "response_time": 0.1317894458770752,
+        "error": null
+      }
+    },
+    {
+      "test_case": {
+        "id": "fight_005",
+        "query": "消防队扑救火灾是否收费？",
+        "expected_keywords": [
+          "不得收取任何费用",
+          "国家综合性消防救援队",
+          "专职消防队"
+        ],
+        "expected_articles": [
+          "第四十九条"
+        ],
+        "category": "收费政策",
+        "difficulty": "easy",
+        "query_type": "政策",
+        "description": "测试对消防救援收费政策的理解"
+      },
+      "metrics": {
+        "keyword_recall": 1.0,
+        "keyword_precision": 1.0,
+        "article_recall": 1.0,
+        "article_precision": 0.5,
+        "semantic_relevance": 0.9086712002754211,
+        "response_time": 0.1349489688873291,
+        "success_rate": 1.0
+      },
+      "detailed_analysis": {
+        "found_keywords": [
+          "不得收取任何费用",
+          "国家综合性消防救援队",
+          "专职消防队"
+        ],
+        "found_articles": [
+          "第四十九条",
+          "第四十七条"
+        ],
+        "expected_keywords": [
+          "不得收取任何费用",
+          "国家综合性消防救援队",
+          "专职消防队"
+        ],
+        "expected_articles": [
+          "第四十九条"
+        ],
+        "top_documents": [
+          {
+            "title": "中华人民共和国消防法",
+            "content_preview": "## 第四十九条\n\n国家综合性消防救援队、专职消防队扑救火灾、应急救援，不得收取任何费用。\n\n单位专职消防队、志愿消防队参加扑救外单位火灾所损耗的燃料、灭火剂和器材、装备等，由火灾发生地的人民政府给予补偿。...",
+            "score": 0.9781250953674316
+          },
+          {
+            "title": "中华人民共和国消防法",
+            "content_preview": "## 第四十七条\n\n消防车、消防艇前往执行火灾扑救或者应急救援任务，在确保安全的前提下，不受行驶速度、行驶路线、行驶方向和指挥信号的限制，其他车辆、船舶以及行人应当让行，不得穿插超越；收费公路、桥梁免收车辆通行费。交通管理指挥人员应当保证消防车、消防艇迅速通行。...",
+            "score": 0.8392173051834106
+          }
+        ]
+      },
+      "retrieval_info": {
+        "total_docs": 2,
+        "response_time": 0.1349489688873291,
+        "error": null
+      }
+    },
+    {
+      "test_case": {
+        "id": "fight_006",
+        "query": "火灾事故调查由谁负责？",
+        "expected_keywords": [
+          "消防救援机构",
+          "封闭火灾现场",
+          "调查火灾原因",
+          "统计火灾损失",
+          "火灾事故认定书"
+        ],
+        "expected_articles": [
+          "第五十一条"
+        ],
+        "category": "事故调查",
+        "difficulty": "medium",
+        "query_type": "程序",
+        "description": "测试对火灾事故调查程序的理解"
+      },
+      "metrics": {
+        "keyword_recall": 0.0,
+        "keyword_precision": 0.0,
+        "article_recall": 0.0,
+        "article_precision": 0.0,
+        "semantic_relevance": 0.0,
+        "response_time": 0.13519644737243652,
+        "success_rate": 1.0
+      },
+      "detailed_analysis": {
+        "found_keywords": [],
+        "found_articles": [],
+        "expected_keywords": [
+          "消防救援机构",
+          "封闭火灾现场",
+          "调查火灾原因",
+          "统计火灾损失",
+          "火灾事故认定书"
+        ],
+        "expected_articles": [
+          "第五十一条"
+        ],
+        "top_documents": []
+      },
+      "retrieval_info": {
+        "total_docs": 0,
+        "response_time": 0.13519644737243652,
+        "error": null
+      }
+    },
+    {
+      "test_case": {
+        "id": "super_001",
+        "query": "地方政府在消防监督检查中的职责是什么？",
+        "expected_keywords": [
+          "消防工作责任制",
+          "监督检查",
+          "有关部门",
+          "消防安全职责"
+        ],
+        "expected_articles": [
+          "第五十二条"
+        ],
+        "category": "政府监督",
+        "difficulty": "medium",
+        "query_type": "职责",
+        "description": "测试对政府消防监督职责的理解"
+      },
+      "metrics": {
+        "keyword_recall": 1.0,
+        "keyword_precision": 1.0,
+        "article_recall": 1.0,
+        "article_precision": 1.0,
+        "semantic_relevance": 0.9409090876579285,
+        "response_time": 0.1404118537902832,
+        "success_rate": 1.0
+      },
+      "detailed_analysis": {
+        "found_keywords": [
+          "消防工作责任制",
+          "监督检查",
+          "有关部门",
+          "消防安全职责"
+        ],
+        "found_articles": [
+          "第五十二条"
+        ],
+        "expected_keywords": [
+          "消防工作责任制",
+          "监督检查",
+          "有关部门",
+          "消防安全职责"
+        ],
+        "expected_articles": [
+          "第五十二条"
+        ],
+        "top_documents": [
+          {
+            "title": "中华人民共和国消防法",
+            "content_preview": "## 第五十二条\n\n地方各级人民政府应当落实消防工作责任制，对本级人民政府有关部门履行消防安全职责的情况进行监督检查。\n\n县级以上地方人民政府有关部门应当根据本系统的特点，有针对性地开展消防安全检查，及时督促整改火灾隐患。...",
+            "score": 0.9409090876579285
+          }
+        ]
+      },
+      "retrieval_info": {
+        "total_docs": 1,
+        "response_time": 0.1404118537902832,
+        "error": null
+      }
+    },
+    {
+      "test_case": {
+        "id": "super_002",
+        "query": "消防救援机构发现火灾隐患时应该怎么处理？",
+        "expected_keywords": [
+          "通知",
+          "立即采取措施",
+          "消除隐患",
+          "严重威胁公共安全",
+          "临时查封措施"
+        ],
+        "expected_articles": [
+          "第五十四条"
+        ],
+        "category": "隐患处理",
+        "difficulty": "medium",
+        "query_type": "程序",
+        "description": "测试对火灾隐患处理程序的理解"
+      },
+      "metrics": {
+        "keyword_recall": 1.0,
+        "keyword_precision": 1.0,
+        "article_recall": 1.0,
+        "article_precision": 0.5,
+        "semantic_relevance": 0.9370477596918741,
+        "response_time": 0.13694548606872559,
+        "success_rate": 1.0
+      },
+      "detailed_analysis": {
+        "found_keywords": [
+          "通知",
+          "立即采取措施",
+          "消除隐患",
+          "严重威胁公共安全",
+          "临时查封措施"
+        ],
+        "found_articles": [
+          "第五十五条",
+          "第五十四条"
+        ],
+        "expected_keywords": [
+          "通知",
+          "立即采取措施",
+          "消除隐患",
+          "严重威胁公共安全",
+          "临时查封措施"
+        ],
+        "expected_articles": [
+          "第五十四条"
+        ],
+        "top_documents": [
+          {
+            "title": "中华人民共和国消防法",
+            "content_preview": "## 第五十四条\n\n消防救援机构在消防监督检查中发现火灾隐患的，应当通知有关单位或者个人立即采取措施消除隐患；不及时消除隐患可能严重威胁公共安全的，消防救援机构应当依照规定对危险部位或者场所采取临时查封措施。...",
+            "score": 0.9892433881759644
+          },
+          {
+            "title": "中华人民共和国消防法",
+            "content_preview": "## 第五十五条\n\n消防救援机构在消防监督检查中发现城乡消防安全布局、公共消防设施不符合消防安全要求，或者发现本地区存在影响公共安全的重大火灾隐患的，应当由应急管理部门书面报告本级人民政府。\n\n接到报告的人民政府应当及时核实情况，组织或者责成有关部门、单位采取措施，予以整改。...",
+            "score": 0.9504496455192566
+          },
+          {
+            "title": "中华人民共和国消防法",
+            "content_preview": "生和灭火救援的障碍物的；\n\n（七）对火灾隐患经消防救援机构通知后不及时采取措施消除的。\n\n个人有前款第二项、第三项、第四项、第五项行为之一的，处警告或者五百元以下罚款。\n\n有本条第一款第三项、第四项、第五项、第六项行为，经责令改正拒不改正的，强制执行，所需费用由违法行为人承担。...",
+            "score": 0.8714502453804016
+          }
+        ]
+      },
+      "retrieval_info": {
+        "total_docs": 3,
+        "response_time": 0.13694548606872559,
+        "error": null
+      }
+    },
+    {
+      "test_case": {
+        "id": "super_003",
+        "query": "消防监督检查应该遵循什么原则？",
+        "expected_keywords": [
+          "公正",
+          "严格",
+          "文明",
+          "高效",
+          "不得收取费用",
+          "不得利用职务谋取利益"
+        ],
+        "expected_articles": [
+          "第五十六条"
+        ],
+        "category": "检查原则",
+        "difficulty": "medium",
+        "query_type": "原则",
+        "description": "测试对消防监督检查原则的理解"
+      },
+      "metrics": {
+        "keyword_recall": 0.0,
+        "keyword_precision": 0.0,
+        "article_recall": 0.0,
+        "article_precision": 0.0,
+        "semantic_relevance": 0.0,
+        "response_time": 0.13906621932983398,
+        "success_rate": 1.0
+      },
+      "detailed_analysis": {
+        "found_keywords": [],
+        "found_articles": [],
+        "expected_keywords": [
+          "公正",
+          "严格",
+          "文明",
+          "高效",
+          "不得收取费用",
+          "不得利用职务谋取利益"
+        ],
+        "expected_articles": [
+          "第五十六条"
+        ],
+        "top_documents": []
+      },
+      "retrieval_info": {
+        "total_docs": 0,
+        "response_time": 0.13906621932983398,
+        "error": null
+      }
+    },
+    {
+      "test_case": {
+        "id": "super_004",
+        "query": "公民对消防执法有什么监督权利？",
+        "expected_keywords": [
+          "检举",
+          "控告",
+          "违法行为",
+          "及时查处"
+        ],
+        "expected_articles": [
+          "第五十七条"
+        ],
+        "category": "公民监督",
+        "difficulty": "easy",
+        "query_type": "权利",
+        "description": "测试对公民消防监督权利的理解"
+      },
+      "metrics": {
+        "keyword_recall": 1.0,
+        "keyword_precision": 1.0,
+        "article_recall": 1.0,
+        "article_precision": 1.0,
+        "semantic_relevance": 0.81023770570755,
+        "response_time": 0.13810467720031738,
+        "success_rate": 1.0
+      },
+      "detailed_analysis": {
+        "found_keywords": [
+          "检举",
+          "控告",
+          "违法行为",
+          "及时查处"
+        ],
+        "found_articles": [
+          "第五十七条"
+        ],
+        "expected_keywords": [
+          "检举",
+          "控告",
+          "违法行为",
+          "及时查处"
+        ],
+        "expected_articles": [
+          "第五十七条"
+        ],
+        "top_documents": [
+          {
+            "title": "中华人民共和国消防法",
+            "content_preview": "## 第五十七条\n\n住房和城乡建设主管部门、消防救援机构及其工作人员执行职务，应当自觉接\n\n受社会和公民的监督。\n\n任何单位和个人都有权对住房和城乡建设主管部门、消防救援机构及其工作人员在执法中的违法行为进行检举、控告。收到检举、控告的机关，应当按照职责及时查处。...",
+            "score": 0.81023770570755
+          }
+        ]
+      },
+      "retrieval_info": {
+        "total_docs": 1,
+        "response_time": 0.13810467720031738,
+        "error": null
+      }
+    },
+    {
+      "test_case": {
+        "id": "legal_001",
+        "query": "建设单位违反消防设计审查规定会面临什么处罚？",
+        "expected_keywords": [
+          "停止施工",
+          "停止使用",
+          "停产停业",
+          "三万元以上三十万元以下",
+          "罚款"
+        ],
+        "expected_articles": [
+          "第五十八条"
+        ],
+        "category": "建设违法处罚",
+        "difficulty": "hard",
+        "query_type": "处罚",
+        "description": "测试对建设工程违法处罚的理解"
+      },
+      "metrics": {
+        "keyword_recall": 1.0,
+        "keyword_precision": 1.0,
+        "article_recall": 1.0,
+        "article_precision": 0.2,
+        "semantic_relevance": 0.9100456595420837,
+        "response_time": 0.1365957260131836,
+        "success_rate": 1.0
+      },
+      "detailed_analysis": {
+        "found_keywords": [
+          "停止施工",
+          "停止使用",
+          "停产停业",
+          "三万元以上三十万元以下",
+          "罚款"
+        ],
+        "found_articles": [
+          "第九条",
+          "第十四条",
+          "第五十九条",
+          "第五十八条",
+          "第十二条"
+        ],
+        "expected_keywords": [
+          "停止施工",
+          "停止使用",
+          "停产停业",
+          "三万元以上三十万元以下",
+          "罚款"
+        ],
+        "expected_articles": [
+          "第五十八条"
+        ],
+        "top_documents": [
+          {
+            "title": "中华人民共和国消防法",
+            "content_preview": "## 第五十八条\n\n违反本法规定，有下列行为之一的，由住房和城乡建设主管部门、消防救援机构按照各自职权责令停止施工、停止使用或者停产停业，并处三万元以上三十万元以下罚款：\n\n（一）依法应当进行消防设计审查的建设工程，未经依法审查或者审查不合格，擅自施工的；\n\n（二）依法应当进行消防验收的建设工程，未经消防验收或者消防验收不合格，擅自投入使...",
+            "score": 0.9654117822647095
+          },
+          {
+            "title": "中华人民共和国消防法",
+            "content_preview": "## 第五十九条\n\n违反本法规定，有下列行为之一的，由住房和城乡建设主管部门责令改正或者停止施工，并处一万元以上十万元以下罚款：\n\n（一）建设单位要求建筑设计单位或者建筑施工企业降低消防技术标准设计、施工的；（二）建筑设计单位不按照消防技术标准强制性要求进行消防设计的；（三）建筑施工企业不按照消防设计文件和消防技术标准施工，...",
+            "score": 0.9393208622932434
+          },
+          {
+            "title": "中华人民共和国消防法",
+            "content_preview": "## 第十四条\n\n建设工程消防设计审查、消防验收、备案和抽查的具体办法，由国务院住房和城乡建设主管部门规定。...",
+            "score": 0.9232409596443176
+          }
+        ]
+      },
+      "retrieval_info": {
+        "total_docs": 5,
+        "response_time": 0.1365957260131836,
+        "error": null
+      }
+    },
+    {
+      "test_case": {
+        "id": "legal_002",
+        "query": "单位违反消防设施管理规定的处罚标准是什么？",
+        "expected_keywords": [
+          "五千元以上五万元以下",
+          "罚款",
+          "消防设施",
+          "器材",
+          "消防安全标志"
+        ],
+        "expected_articles": [
+          "第六十条"
+        ],
+        "category": "设施违法处罚",
+        "difficulty": "medium",
+        "query_type": "处罚",
+        "description": "测试对消防设施违法处罚的理解"
+      },
+      "metrics": {
+        "keyword_recall": 1.0,
+        "keyword_precision": 1.0,
+        "article_recall": 1.0,
+        "article_precision": 0.3333333333333333,
+        "semantic_relevance": 0.834677442908287,
+        "response_time": 0.13959908485412598,
+        "success_rate": 1.0
+      },
+      "detailed_analysis": {
+        "found_keywords": [
+          "五千元以上五万元以下",
+          "罚款",
+          "消防设施",
+          "器材",
+          "消防安全标志"
+        ],
+        "found_articles": [
+          "第六十条",
+          "第六十六条",
+          "第五十九条"
+        ],
+        "expected_keywords": [
+          "五千元以上五万元以下",
+          "罚款",
+          "消防设施",
+          "器材",
+          "消防安全标志"
+        ],
+        "expected_articles": [
+          "第六十条"
+        ],
+        "top_documents": [
+          {
+            "title": "中华人民共和国消防法",
+            "content_preview": "## 第六十条\n\n单位违反本法规定，有下列行为之一的，责令改正，处五千元以上五万元以下罚款：\n\n（一）消防设施、器材或者消防安全标志的配置、设置不符合国家标准、行业标准，或者未保持完好有效的；\n\n（二）损坏、挪用或者擅自拆除、停用消防设施、器材的；\n\n（三）占用、堵塞、封闭疏散通道、安全出口或者有其他妨碍安全疏散行为的；...",
+            "score": 0.9938741326332092
+          },
+          {
+            "title": "中华人民共和国消防法",
+            "content_preview": "## 第六十六条\n\n电器产品、燃气用具的安装、使用及其线路、管路的设计、敷设、维护保养、检测不符合消防技术标准和管理规定的，责令限期改正；逾期不改正的，责令停止使用，可以并处一千元以上五千元以下罚款。...",
+            "score": 0.7940555810928345
+          },
+          {
+            "title": "中华人民共和国消防法",
+            "content_preview": "## 第五十九条\n\n违反本法规定，有下列行为之一的，由住房和城乡建设主管部门责令改正或者停止施工，并处一万元以上十万元以下罚款：\n\n（一）建设单位要求建筑设计单位或者建筑施工企业降低消防技术标准设计、施工的；（二）建筑设计单位不按照消防技术标准强制性要求进行消防设计的；（三）建筑施工企业不按照消防设计文件和消防技术标准施工，...",
+            "score": 0.7891584038734436
+          }
+        ]
+      },
+      "retrieval_info": {
+        "total_docs": 4,
+        "response_time": 0.13959908485412598,
+        "error": null
+      }
+    },
+    {
+      "test_case": {
+        "id": "legal_003",
+        "query": "个人违反消防安全规定会受到什么处罚？",
+        "expected_keywords": [
+          "警告",
+          "五百元以下罚款",
+          "五日以下拘留",
+          "十日以上十五日以下拘留"
+        ],
+        "expected_articles": [
+          "第六十条",
+          "第六十三条",
+          "第六十四条"
+        ],
+        "category": "个人违法处罚",
+        "difficulty": "medium",
+        "query_type": "处罚",
+        "description": "测试对个人消防违法处罚的理解"
+      },
+      "metrics": {
+        "keyword_recall": 1.0,
+        "keyword_precision": 1.0,
+        "article_recall": 1.0,
+        "article_precision": 0.75,
+        "semantic_relevance": 0.897994065284729,
+        "response_time": 0.136976957321167,
+        "success_rate": 1.0
+      },
+      "detailed_analysis": {
+        "found_keywords": [
+          "警告",
+          "五百元以下罚款",
+          "五日以下拘留",
+          "十日以上十五日以下拘留"
+        ],
+        "found_articles": [
+          "第六十条",
+          "第五十八条",
+          "第六十四条",
+          "第六十三条"
+        ],
+        "expected_keywords": [
+          "警告",
+          "五百元以下罚款",
+          "五日以下拘留",
+          "十日以上十五日以下拘留"
+        ],
+        "expected_articles": [
+          "第六十条",
+          "第六十三条",
+          "第六十四条"
+        ],
+        "top_documents": [
+          {
+            "title": "中华人民共和国消防法",
+            "content_preview": "## 第六十三条\n\n违反本法规定，有下列行为之一的，处警告或者五百元以下罚款；情节严重的，处五日以下拘留：\n\n（一）违反消防安全规定进入生产、储存易燃易爆危险品场所的；（二）违反规定使用明火作业或者在具有火灾、爆炸危险的场所吸烟、使用明火的。...",
+            "score": 0.979606568813324
+          },
+          {
+            "title": "中华人民共和国消防法",
+            "content_preview": "## 第六十四条\n\n违反本法规定，有下列行为之一，尚不构成犯罪的，处十日以上十五日以下拘留，可以并处五百元以下罚款；情节较轻的，处警告或者五百元以下罚款：\n\n（一）指使或者强令他人违反消防安全规定，冒险作业的；（二）过失引起火灾的；（三）在火灾发生后阻拦报警，或者负有报告职责的人员不及时报警的；（四）扰乱火灾现场秩序，或者...",
+            "score": 0.9792860150337219
+          },
+          {
+            "title": "中华人民共和国消防法",
+            "content_preview": "## 第六十条\n\n单位违反本法规定，有下列行为之一的，责令改正，处五千元以上五万元以下罚款：\n\n（一）消防设施、器材或者消防安全标志的配置、设置不符合国家标准、行业标准，或者未保持完好有效的；\n\n（二）损坏、挪用或者擅自拆除、停用消防设施、器材的；\n\n（三）占用、堵塞、封闭疏散通道、安全出口或者有其他妨碍安全疏散行为的；...",
+            "score": 0.8663217425346375
+          }
+        ]
+      },
+      "retrieval_info": {
+        "total_docs": 5,
+        "response_time": 0.136976957321167,
+        "error": null
+      }
+    },
+    {
+      "test_case": {
+        "id": "legal_004",
+        "query": "消防技术服务机构违法行为的处罚措施有哪些？",
+        "expected_keywords": [
+          "五万元以上十万元以下",
+          "罚款",
+          "停止执业",
+          "吊销相应资格",
+          "终身市场禁入"
+        ],
+        "expected_articles": [
+          "第六十九条"
+        ],
+        "category": "技术服务违法",
+        "difficulty": "hard",
+        "query_type": "处罚",
+        "description": "测试对消防技术服务违法处罚的理解"
+      },
+      "metrics": {
+        "keyword_recall": 1.0,
+        "keyword_precision": 1.0,
+        "article_recall": 1.0,
+        "article_precision": 1.0,
+        "semantic_relevance": 0.96882763504982,
+        "response_time": 0.13843178749084473,
+        "success_rate": 1.0
+      },
+      "detailed_analysis": {
+        "found_keywords": [
+          "五万元以上十万元以下",
+          "罚款",
+          "停止执业",
+          "吊销相应资格",
+          "终身市场禁入"
+        ],
+        "found_articles": [
+          "第六十九条"
+        ],
+        "expected_keywords": [
+          "五万元以上十万元以下",
+          "罚款",
+          "停止执业",
+          "吊销相应资格",
+          "终身市场禁入"
+        ],
+        "expected_articles": [
+          "第六十九条"
+        ],
+        "top_documents": [
+          {
+            "title": "中华人民共和国消防法",
+            "content_preview": "## 第六十九条\n\n消防设施维护保养检测、消防安全评估等消防技术服务机构，不具备从业条件从事消防技术服务活动或者出具虚假文件的，由消防救援机构责令改正，处五万元以上十万元以下罚款，并对直接负责的主管人员和其他直接责任人员处一万元以上五万元以下罚款；不按照国家标准、行业标准开展消防技术服务活动的，责令改正，处五万元以下罚款，并对直接...",
+            "score": 0.9815894961357117
+          },
+          {
+            "title": "中华人民共和国消防法",
+            "content_preview": "；不按照国家标准、行业标准开展消防技术服务活动的，责令改正，处五万元以下罚款，并对直接负责的主管人员和其他直接责任人员处一万元以下罚款；\n\n有违法所得的，并处没收违法所得；给他人造成损失的，依法承担赔偿责任；情节严重的，依法责令停止执业或者吊销相应资格；造成重大损失的，由相关部门吊销营业执照，并对有关责任人员采取终身市场禁入措...",
+            "score": 0.9560657739639282
+          }
+        ]
+      },
+      "retrieval_info": {
+        "total_docs": 2,
+        "response_time": 0.13843178749084473,
+        "error": null
+      }
+    },
+    {
+      "test_case": {
+        "id": "legal_005",
+        "query": "消防工作人员滥用职权会承担什么责任？",
+        "expected_keywords": [
+          "滥用职权",
+          "玩忽职守",
+          "徇私舞弊",
+          "依法给予处分",
+          "构成犯罪",
+          "追究刑事责任"
+        ],
+        "expected_articles": [
+          "第七十一条",
+          "第七十二条"
+        ],
+        "category": "职务违法责任",
+        "difficulty": "hard",
+        "query_type": "责任",
+        "description": "测试对消防工作人员违法责任的理解"
+      },
+      "metrics": {
+        "keyword_recall": 0.8333333333333334,
+        "keyword_precision": 0.8333333333333334,
+        "article_recall": 0.5,
+        "article_precision": 1.0,
+        "semantic_relevance": 0.9579642117023468,
+        "response_time": 0.1396496295928955,
+        "success_rate": 1.0
+      },
+      "detailed_analysis": {
+        "found_keywords": [
+          "滥用职权",
+          "玩忽职守",
+          "徇私舞弊",
+          "依法给予处分",
+          "构成犯罪"
+        ],
+        "found_articles": [
+          "第七十一条"
+        ],
+        "expected_keywords": [
+          "滥用职权",
+          "玩忽职守",
+          "徇私舞弊",
+          "依法给予处分",
+          "构成犯罪",
+          "追究刑事责任"
+        ],
+        "expected_articles": [
+          "第七十一条",
+          "第七十二条"
+        ],
+        "top_documents": [
+          {
+            "title": "中华人民共和国消防法",
+            "content_preview": "设施施工单位的；\n\n（五）将消防车、消防艇以及消防器材、装备和设施用于与消防和应急救援无关的事项的；\n\n（六）其他滥用职权、玩忽职守、徇私舞弊的行为。\n\n产品质量监督、工商行政管理等其他有关行政主管部门的工作人员在消防工作中滥用职权、玩忽职守、徇私舞弊，尚不构成犯罪的，依法给予处分。...",
+            "score": 0.9689738154411316
+          },
+          {
+            "title": "中华人民共和国消防法",
+            "content_preview": "## 第七十一条\n\n住房和城乡建设主管部门、消防救援机构的工作人员滥用职权、玩忽职守、徇私舞弊，有下列行为之一，尚不构成犯罪的，依法给予处分：\n\n（一）对不符合消防安全要求的消防设计文件、建设工程、场所准予审查合格、消防验收合格、消防安全检查合格的；\n\n（二）无故拖延消防设计审查、消防验收、消防安全检查，不在法定期限内履...",
+            "score": 0.946954607963562
+          }
+        ]
+      },
+      "retrieval_info": {
+        "total_docs": 2,
+        "response_time": 0.1396496295928955,
+        "error": null
+      }
+    },
+    {
+      "test_case": {
+        "id": "tech_001",
+        "query": "消防产品必须符合什么标准？",
+        "expected_keywords": [
+          "国家标准",
+          "行业标准",
+          "强制性产品认证",
+          "技术鉴定"
+        ],
+        "expected_articles": [
+          "第二十四条"
+        ],
+        "category": "产品标准",
+        "difficulty": "medium",
+        "query_type": "标准",
+        "description": "测试对消防产品标准要求的理解"
+      },
+      "metrics": {
+        "keyword_recall": 1.0,
+        "keyword_precision": 1.0,
+        "article_recall": 1.0,
+        "article_precision": 0.3333333333333333,
+        "semantic_relevance": 0.9501389712095261,
+        "response_time": 0.1342451572418213,
+        "success_rate": 1.0
+      },
+      "detailed_analysis": {
+        "found_keywords": [
+          "国家标准",
+          "行业标准",
+          "强制性产品认证",
+          "技术鉴定"
+        ],
+        "found_articles": [
+          "第二十七条",
+          "第二十四条",
+          "第二十六条"
+        ],
+        "expected_keywords": [
+          "国家标准",
+          "行业标准",
+          "强制性产品认证",
+          "技术鉴定"
+        ],
+        "expected_articles": [
+          "第二十四条"
+        ],
+        "top_documents": [
+          {
+            "title": "中华人民共和国消防法",
+            "content_preview": "## 第二十四条\n\n消防产品必须符合国家标准；没有国家标准的，必须符合行业标准。禁止生产、销售或者使用不合格的消防产品以及国家明令淘汰的消防产品\n\n依法实行强制性产品认证的消防产品，由具有法定资质的认证机构按照国家标准、行业标准的强制性要求认证合格后，方可生产、销售、使用。实行强制性产品认证的消防产品目录，由国务院产品质量监督部门会同国务院应急管理部门制定并公布。...",
+            "score": 0.9974036812782288
+          },
+          {
+            "title": "中华人民共和国消防法",
+            "content_preview": "## 第二十七条\n\n电器产品、燃气用具的产品标准，应当符合消防安全的要求。\n\n电器产品、燃气用具的安装、使用及其线路、管路的设计、敷设、维护保养、检测，必须符合消防技术标准和管理规定。...",
+            "score": 0.9712420701980591
+          },
+          {
+            "title": "中华人民共和国消防法",
+            "content_preview": "实行强制性产品认证的消防产品目录，由国务院产品质量监督部门会同国务院应急管理部门制定并公布。\n\n新研制的尚未制定国家标准、行业标准的消防产品，应当按照国务院产品质量监督部门会同国务院应急管理部门规定的办法，经技术鉴定符合消防安全要求的，方可生产、销售、使用。\n\n依照本条规定经强制性产品认证合格或者技术鉴定合格的消防产品，国务院应急管理部门应当予以公布。...",
+            "score": 0.9583425521850586
+          }
+        ]
+      },
+      "retrieval_info": {
+        "total_docs": 4,
+        "response_time": 0.1342451572418213,
+        "error": null
+      }
+    },
+    {
+      "test_case": {
+        "id": "tech_002",
+        "query": "建设工程消防设计审查验收的具体办法由谁制定？",
+        "expected_keywords": [
+          "国务院住房和城乡建设主管部门",
+          "具体办法"
+        ],
+        "expected_articles": [
+          "第十四条"
+        ],
+        "category": "制度规定",
+        "difficulty": "medium",
+        "query_type": "规定",
+        "description": "测试对消防制度制定权限的理解"
+      },
+      "metrics": {
+        "keyword_recall": 1.0,
+        "keyword_precision": 1.0,
+        "article_recall": 1.0,
+        "article_precision": 0.5,
+        "semantic_relevance": 0.8951548039913177,
+        "response_time": 0.13145828247070312,
+        "success_rate": 1.0
+      },
+      "detailed_analysis": {
+        "found_keywords": [
+          "国务院住房和城乡建设主管部门",
+          "具体办法"
+        ],
+        "found_articles": [
+          "第十条",
+          "第十四条"
+        ],
+        "expected_keywords": [
+          "国务院住房和城乡建设主管部门",
+          "具体办法"
+        ],
+        "expected_articles": [
+          "第十四条"
+        ],
+        "top_documents": [
+          {
+            "title": "中华人民共和国消防法",
+            "content_preview": "## 第十四条\n\n建设工程消防设计审查、消防验收、备案和抽查的具体办法，由国务院住房和城乡建设主管部门规定。...",
+            "score": 0.9957866072654724
+          },
+          {
+            "title": "中华人民共和国消防法",
+            "content_preview": "## 第十条\n\n对按照国家工程建设消防技术标准需要进行消防设计的建设工程，实行建设工程消防设计审查验收制度。...",
+            "score": 0.7945230007171631
+          }
+        ]
+      },
+      "retrieval_info": {
+        "total_docs": 2,
+        "response_time": 0.13145828247070312,
+        "error": null
+      }
+    },
+    {
+      "test_case": {
+        "id": "tech_003",
+        "query": "消防安全检查的具体办法由哪个部门制定？",
+        "expected_keywords": [
+          "国务院应急管理部门",
+          "消防安全检查",
+          "具体办法"
+        ],
+        "expected_articles": [
+          "第十五条"
+        ],
+        "category": "检查制度",
+        "difficulty": "medium",
+        "query_type": "规定",
+        "description": "测试对消防检查制度制定权限的理解"
+      },
+      "metrics": {
+        "keyword_recall": 0.3333333333333333,
+        "keyword_precision": 0.3333333333333333,
+        "article_recall": 0.0,
+        "article_precision": 0.0,
+        "semantic_relevance": 0.935889720916748,
+        "response_time": 0.13264179229736328,
+        "success_rate": 1.0
+      },
+      "detailed_analysis": {
+        "found_keywords": [
+          "具体办法"
+        ],
+        "found_articles": [
+          "第十四条"
+        ],
+        "expected_keywords": [
+          "国务院应急管理部门",
+          "消防安全检查",
+          "具体办法"
+        ],
+        "expected_articles": [
+          "第十五条"
+        ],
+        "top_documents": [
+          {
+            "title": "中华人民共和国消防法",
+            "content_preview": "## 第十四条\n\n建设工程消防设计审查、消防验收、备案和抽查的具体办法，由国务院住房和城乡建设主管部门规定。...",
+            "score": 0.935889720916748
+          }
+        ]
+      },
+      "retrieval_info": {
+        "total_docs": 1,
+        "response_time": 0.13264179229736328,
+        "error": null
+      }
+    },
+    {
+      "test_case": {
+        "id": "emerg_001",
+        "query": "地方政府应该如何建立火灾应急响应机制？",
+        "expected_keywords": [
+          "应急预案",
+          "应急反应",
+          "处置机制",
+          "人员",
+          "装备",
+          "保障"
+        ],
+        "expected_articles": [
+          "第四十三条"
+        ],
+        "category": "应急机制",
+        "difficulty": "hard",
+        "query_type": "机制",
+        "description": "测试对火灾应急响应机制的理解"
+      },
+      "metrics": {
+        "keyword_recall": 1.0,
+        "keyword_precision": 1.0,
+        "article_recall": 1.0,
+        "article_precision": 1.0,
+        "semantic_relevance": 0.9139066934585571,
+        "response_time": 0.12688755989074707,
+        "success_rate": 1.0
+      },
+      "detailed_analysis": {
+        "found_keywords": [
+          "应急预案",
+          "应急反应",
+          "处置机制",
+          "人员",
+          "装备",
+          "保障"
+        ],
+        "found_articles": [
+          "第四十三条"
+        ],
+        "expected_keywords": [
+          "应急预案",
+          "应急反应",
+          "处置机制",
+          "人员",
+          "装备",
+          "保障"
+        ],
+        "expected_articles": [
+          "第四十三条"
+        ],
+        "top_documents": [
+          {
+            "title": "中华人民共和国消防法",
+            "content_preview": "## 第四十三条\n\n县级以上地方人民政府应当组织有关部门针对本行政区域内的火灾特点制定应急预案，建立应急反应和处置机制，为火灾扑救和应急救援工作提供人员、装备等保障...",
+            "score": 0.9139066934585571
+          }
+        ]
+      },
+      "retrieval_info": {
+        "total_docs": 1,
+        "response_time": 0.12688755989074707,
+        "error": null
+      }
+    },
+    {
+      "test_case": {
+        "id": "emerg_002",
+        "query": "参加扑救火灾受伤的人员享受什么待遇？",
+        "expected_keywords": [
+          "医疗",
+          "抚恤",
+          "受伤",
+          "致残",
+          "死亡",
+          "国家有关规定"
+        ],
+        "expected_articles": [
+          "第五十条"
+        ],
+        "category": "伤亡抚恤",
+        "difficulty": "medium",
+        "query_type": "待遇",
+        "description": "测试对消防伤亡抚恤政策的理解"
+      },
+      "metrics": {
+        "keyword_recall": 1.0,
+        "keyword_precision": 1.0,
+        "article_recall": 1.0,
+        "article_precision": 1.0,
+        "semantic_relevance": 0.9836120009422302,
+        "response_time": 0.13197565078735352,
+        "success_rate": 1.0
+      },
+      "detailed_analysis": {
+        "found_keywords": [
+          "医疗",
+          "抚恤",
+          "受伤",
+          "致残",
+          "死亡",
+          "国家有关规定"
+        ],
+        "found_articles": [
+          "第五十条"
+        ],
+        "expected_keywords": [
+          "医疗",
+          "抚恤",
+          "受伤",
+          "致残",
+          "死亡",
+          "国家有关规定"
+        ],
+        "expected_articles": [
+          "第五十条"
+        ],
+        "top_documents": [
+          {
+            "title": "中华人民共和国消防法",
+            "content_preview": "## 第五十条\n\n对因参加扑救火灾或者应急救援受伤、致残或者死亡的人员，按照国家有关规定给予医疗、抚恤。...",
+            "score": 0.9836120009422302
+          }
+        ]
+      },
+      "retrieval_info": {
+        "total_docs": 1,
+        "response_time": 0.13197565078735352,
+        "error": null
+      }
+    },
+    {
+      "test_case": {
+        "id": "train_001",
+        "query": "各级政府在消防宣传教育中的职责是什么？",
+        "expected_keywords": [
+          "经常性",
+          "消防宣传教育",
+          "提高",
+          "消防安全意识"
+        ],
+        "expected_articles": [
+          "第六条"
+        ],
+        "category": "宣传教育",
+        "difficulty": "medium",
+        "query_type": "职责",
+        "description": "测试对政府消防宣传教育职责的理解"
+      },
+      "metrics": {
+        "keyword_recall": 1.0,
+        "keyword_precision": 1.0,
+        "article_recall": 1.0,
+        "article_precision": 0.5,
+        "semantic_relevance": 0.8560737172762553,
+        "response_time": 0.13666462898254395,
+        "success_rate": 1.0
+      },
+      "detailed_analysis": {
+        "found_keywords": [
+          "经常性",
+          "消防宣传教育",
+          "提高",
+          "消防安全意识"
+        ],
+        "found_articles": [
+          "第六条",
+          "第三十一条"
+        ],
+        "expected_keywords": [
+          "经常性",
+          "消防宣传教育",
+          "提高",
+          "消防安全意识"
+        ],
+        "expected_articles": [
+          "第六条"
+        ],
+        "top_documents": [
+          {
+            "title": "中华人民共和国消防法",
+            "content_preview": "## 第六条\n\n各级人民政府应当组织开展经常性的消防宣传教育，提高公民的消防安全意识。\n\n机关、团体、企业、事业等单位，应当加强对本单位人员的消防宣传教育。\n\n应急管理部门及消防救援机构应当加强消防法律、法规的宣传，并督促、指导、协助有关单位做好消防宣传教育工作。...",
+            "score": 0.9876027703285217
+          },
+          {
+            "title": "中华人民共和国消防法",
+            "content_preview": "## 第三十一条\n\n在农业收获季节、森林和草原防火期间、重大节假日期间以及火灾多发季节，地方各级人民政府应当组织开展有针对性的消防宣传教育，采取防火措施，进行消防安全检查。...",
+            "score": 0.8471713662147522
+          },
+          {
+            "title": "中华人民共和国消防法",
+            "content_preview": "村民委员会、居民委员会应当协助人民政府以及公安机关、应急管理等部门，加强消防宣传教育。...",
+            "score": 0.7334470152854919
+          }
+        ]
+      },
+      "retrieval_info": {
+        "total_docs": 3,
+        "response_time": 0.13666462898254395,
+        "error": null
+      }
+    },
+    {
+      "test_case": {
+        "id": "train_002",
+        "query": "哪些人员必须持证上岗？",
+        "expected_keywords": [
+          "电焊",
+          "气焊",
+          "火灾危险作业",
+          "自动消防系统",
+          "操作人员",
+          "持证上岗"
+        ],
+        "expected_articles": [
+          "第二十一条"
+        ],
+        "category": "持证上岗",
+        "difficulty": "medium",
+        "query_type": "要求",
+        "description": "测试对特殊作业人员持证要求的理解"
+      },
+      "metrics": {
+        "keyword_recall": 1.0,
+        "keyword_precision": 1.0,
+        "article_recall": 1.0,
+        "article_precision": 1.0,
+        "semantic_relevance": 0.9207651615142822,
+        "response_time": 0.1309359073638916,
+        "success_rate": 1.0
+      },
+      "detailed_analysis": {
+        "found_keywords": [
+          "电焊",
+          "气焊",
+          "火灾危险作业",
+          "自动消防系统",
+          "操作人员",
+          "持证上岗"
+        ],
+        "found_articles": [
+          "第二十一条"
+        ],
+        "expected_keywords": [
+          "电焊",
+          "气焊",
+          "火灾危险作业",
+          "自动消防系统",
+          "操作人员",
+          "持证上岗"
+        ],
+        "expected_articles": [
+          "第二十一条"
+        ],
+        "top_documents": [
+          {
+            "title": "中华人民共和国消防法",
+            "content_preview": "## 第二十一条\n\n禁止在具有火灾、爆炸危险的场所吸烟、使用明火。因施工等特殊情况需要使用明火作业的，应当按照规定事先办理审批手续，采取相应的消防安全措施；作业人员应当遵守消防安全规定\n\n进行电焊、气焊等具有火灾危险作业的人员和自动消防系统的操作人员，必须持证上岗，并遵守消防安全操作规程。...",
+            "score": 0.9207651615142822
+          }
+        ]
+      },
+      "retrieval_info": {
+        "total_docs": 1,
+        "response_time": 0.1309359073638916,
+        "error": null
+      }
+    },
+    {
+      "test_case": {
+        "id": "train_003",
+        "query": "教育部门在消防教育中承担什么责任？",
+        "expected_keywords": [
+          "教育",
+          "人力资源行政主管部门",
+          "学校",
+          "职业培训机构",
+          "消防知识",
+          "教育",
+          "教学",
+          "培训"
+        ],
+        "expected_articles": [
+          "第六条"
+        ],
+        "category": "教育培训",
+        "difficulty": "medium",
+        "query_type": "责任",
+        "description": "测试对教育部门消防教育责任的理解"
+      },
+      "metrics": {
+        "keyword_recall": 1.0,
+        "keyword_precision": 1.0,
+        "article_recall": 1.0,
+        "article_precision": 1.0,
+        "semantic_relevance": 0.833714634180069,
+        "response_time": 0.12791752815246582,
+        "success_rate": 1.0
+      },
+      "detailed_analysis": {
+        "found_keywords": [
+          "教育",
+          "人力资源行政主管部门",
+          "学校",
+          "职业培训机构",
+          "消防知识",
+          "教育",
+          "教学",
+          "培训"
+        ],
+        "found_articles": [
+          "第六条"
+        ],
+        "expected_keywords": [
+          "教育",
+          "人力资源行政主管部门",
+          "学校",
+          "职业培训机构",
+          "消防知识",
+          "教育",
+          "教学",
+          "培训"
+        ],
+        "expected_articles": [
+          "第六条"
+        ],
+        "top_documents": [
+          {
+            "title": "中华人民共和国消防法",
+            "content_preview": "教育、人力资源行政主管部门和学校、有关职业培训机构应当将消防知识纳入教育、教学、培训的内容。\n\n新闻、广播、电视等有关单位，应当有针对性地面向社会进行消防宣传教育。\n\n工会、共产主义青年团、妇女联合会等团体应当结合各自工作对象的特点，组织开展消防宣传教育。...",
+            "score": 0.8825433254241943
+          },
+          {
+            "title": "中华人民共和国消防法",
+            "content_preview": "## 第六条\n\n各级人民政府应当组织开展经常性的消防宣传教育，提高公民的消防安全意识。\n\n机关、团体、企业、事业等单位，应当加强对本单位人员的消防宣传教育。\n\n应急管理部门及消防救援机构应当加强消防法律、法规的宣传，并督促、指导、协助有关单位做好消防宣传教育工作。...",
+            "score": 0.7848859429359436
+          }
+        ]
+      },
+      "retrieval_info": {
+        "total_docs": 2,
+        "response_time": 0.12791752815246582,
+        "error": null
+      }
+    },
+    {
+      "test_case": {
+        "id": "equip_001",
+        "query": "公共消防设施包括哪些内容？",
+        "expected_keywords": [
+          "消防供水",
+          "消防通信",
+          "消防车通道",
+          "完好有效"
+        ],
+        "expected_articles": [
+          "第二十九条"
+        ],
+        "category": "公共设施",
+        "difficulty": "medium",
+        "query_type": "内容",
+        "description": "测试对公共消防设施内容的理解"
+      },
+      "metrics": {
+        "keyword_recall": 1.0,
+        "keyword_precision": 1.0,
+        "article_recall": 1.0,
+        "article_precision": 0.5,
+        "semantic_relevance": 0.8683011531829834,
+        "response_time": 0.13565540313720703,
+        "success_rate": 1.0
+      },
+      "detailed_analysis": {
+        "found_keywords": [
+          "消防供水",
+          "消防通信",
+          "消防车通道",
+          "完好有效"
+        ],
+        "found_articles": [
+          "第二十九条",
+          "第七十三条"
+        ],
+        "expected_keywords": [
+          "消防供水",
+          "消防通信",
+          "消防车通道",
+          "完好有效"
+        ],
+        "expected_articles": [
+          "第二十九条"
+        ],
+        "top_documents": [
+          {
+            "title": "中华人民共和国消防法",
+            "content_preview": "## 第二十九条\n\n负责公共消防设施维护管理的单位，应当保持消防供水、消防通信、消防车通道等公共消防设施的完好有效。在修建道路以及停电、停水、截断通信线路时有可能影响消防队灭火救援的，有关单位必须事先通知当地消防救援机构。...",
+            "score": 0.909260094165802
+          },
+          {
+            "title": "中华人民共和国消防法",
+            "content_preview": "## 第七十三条 本法下列用语的含义：\n\n（一）消防设施，是指火灾自动报警系统、自动灭火系统、消火栓系统、防烟排烟系统以及应急广播和应急照明、安全疏散设施等。\n\n（二）消防产品，是指专门用于火灾预防、灭火救援和火灾防护、避难、逃生的产品。...",
+            "score": 0.8273422122001648
+          }
+        ]
+      },
+      "retrieval_info": {
+        "total_docs": 2,
+        "response_time": 0.13565540313720703,
+        "error": null
+      }
+    },
+    {
+      "test_case": {
+        "id": "equip_002",
+        "query": "哪些单位应当建立单位专职消防队？",
+        "expected_keywords": [
+          "大型核设施",
+          "大型发电厂",
+          "民用机场",
+          "主要港口",
+          "易燃易爆危险品",
+          "重要物资",
+          "古建筑群"
+        ],
+        "expected_articles": [
+          "第三十九条"
+        ],
+        "category": "专职消防队",
+        "difficulty": "hard",
+        "query_type": "要求",
+        "description": "测试对专职消防队建立要求的理解"
+      },
+      "metrics": {
+        "keyword_recall": 0.8571428571428571,
+        "keyword_precision": 0.8571428571428571,
+        "article_recall": 1.0,
+        "article_precision": 0.3333333333333333,
+        "semantic_relevance": 0.8752750754356384,
+        "response_time": 0.1355133056640625,
+        "success_rate": 1.0
+      },
+      "detailed_analysis": {
+        "found_keywords": [
+          "大型核设施",
+          "大型发电厂",
+          "民用机场",
+          "主要港口",
+          "易燃易爆危险品",
+          "重要物资"
+        ],
+        "found_articles": [
+          "第三十六条",
+          "第四十条",
+          "第三十九条"
+        ],
+        "expected_keywords": [
+          "大型核设施",
+          "大型发电厂",
+          "民用机场",
+          "主要港口",
+          "易燃易爆危险品",
+          "重要物资",
+          "古建筑群"
+        ],
+        "expected_articles": [
+          "第三十九条"
+        ],
+        "top_documents": [
+          {
+            "title": "中华人民共和国消防法",
+            "content_preview": "## 第三十九条\n\n下列单位应当建立单位专职消防队，承担本单位的火灾扑救工作：\n\n（一）大型核设施单位、大型发电厂、民用机场、主要港口；（二）生产、储存易燃易爆危险品的大型企业；（三）储备可燃的重要物资的大型仓库、基地；（四）第一项、第二项、第三项规定以外的火灾危险性较大、距离国家综合性消防救援队较远的其他大型企业；\n\n（五...",
+            "score": 0.9908485412597656
+          },
+          {
+            "title": "中华人民共和国消防法",
+            "content_preview": "## 第三十六条\n\n县级以上地方人民政府应当按照国家规定建立国家综合性消防救援队、专职消防队，并按照国家标准配备消防装备，承担火灾扑救工作。\n\n乡镇人民政府应当根据当地经济发展和消防工作的需要，建立专职消防队、志愿消防队，承担火灾扑救工作。...",
+            "score": 0.868351399898529
+          },
+          {
+            "title": "中华人民共和国消防法",
+            "content_preview": "## 第四十条\n\n专职消防队的建立，应当符合国家有关规定，并报当地消防救援机构验收。\n\n专职消防队的队员依法享受社会保险和福利待遇。...",
+            "score": 0.7666252851486206
+          }
+        ]
+      },
+      "retrieval_info": {
+        "total_docs": 3,
+        "response_time": 0.1355133056640625,
+        "error": null
+      }
+    },
+    {
+      "test_case": {
+        "id": "equip_003",
+        "query": "消防车和消防器材能否用于其他用途？",
+        "expected_keywords": [
+          "不得用于",
+          "消防和应急救援工作无关",
+          "事项"
+        ],
+        "expected_articles": [
+          "第四十八条"
+        ],
+        "category": "设备使用",
+        "difficulty": "easy",
+        "query_type": "规定",
+        "description": "测试对消防设备专用性规定的理解"
+      },
+      "metrics": {
+        "keyword_recall": 1.0,
+        "keyword_precision": 1.0,
+        "article_recall": 1.0,
+        "article_precision": 1.0,
+        "semantic_relevance": 0.9400807321071625,
+        "response_time": 0.13718700408935547,
+        "success_rate": 1.0
+      },
+      "detailed_analysis": {
+        "found_keywords": [
+          "不得用于",
+          "消防和应急救援工作无关",
+          "事项"
+        ],
+        "found_articles": [
+          "第四十八条"
+        ],
+        "expected_keywords": [
+          "不得用于",
+          "消防和应急救援工作无关",
+          "事项"
+        ],
+        "expected_articles": [
+          "第四十八条"
+        ],
+        "top_documents": [
+          {
+            "title": "中华人民共和国消防法",
+            "content_preview": "## 第四十八条\n\n消防车、消防艇以及消防器材、装备和设施，不得用于与消防和应急救援工作无关的事项。...",
+            "score": 0.9775026440620422
+          },
+          {
+            "title": "中华人民共和国消防法",
+            "content_preview": "设施施工单位的；\n\n（五）将消防车、消防艇以及消防器材、装备和设施用于与消防和应急救援无关的事项的；\n\n（六）其他滥用职权、玩忽职守、徇私舞弊的行为。\n\n产品质量监督、工商行政管理等其他有关行政主管部门的工作人员在消防工作中滥用职权、玩忽职守、徇私舞弊，尚不构成犯罪的，依法给予处分。...",
+            "score": 0.9026588201522827
+          }
+        ]
+      },
+      "retrieval_info": {
+        "total_docs": 2,
+        "response_time": 0.13718700408935547,
+        "error": null
+      }
+    },
+    {
+      "test_case": {
+        "id": "equip_004",
+        "query": "建筑消防设施检测的要求是什么？",
+        "expected_keywords": [
+          "每年至少",
+          "一次全面检测",
+          "完好有效",
+          "检测记录",
+          "完整准确",
+          "存档备查"
+        ],
+        "expected_articles": [
+          "第十六条"
+        ],
+        "category": "设施检测",
+        "difficulty": "medium",
+        "query_type": "要求",
+        "description": "测试对建筑消防设施检测要求的理解"
+      },
+      "metrics": {
+        "keyword_recall": 0.0,
+        "keyword_precision": 0.0,
+        "article_recall": 0.0,
+        "article_precision": 0.0,
+        "semantic_relevance": 0.7457249760627747,
+        "response_time": 0.13705968856811523,
+        "success_rate": 1.0
+      },
+      "detailed_analysis": {
+        "found_keywords": [],
+        "found_articles": [
+          "第三十四条"
+        ],
+        "expected_keywords": [
+          "每年至少",
+          "一次全面检测",
+          "完好有效",
+          "检测记录",
+          "完整准确",
+          "存档备查"
+        ],
+        "expected_articles": [
+          "第十六条"
+        ],
+        "top_documents": [
+          {
+            "title": "中华人民共和国消防法",
+            "content_preview": "## 第三十四条\n\n消防设施维护保养检测、消防安全评估等消防技术服务机构应当符合从业条件，执业人员应当依法获得相应的资格；依照法律、行政法规、国家标准、行业标准和执业准则，接受委托提供消防技术服务，并对服务质量负责。...",
+            "score": 0.7457249760627747
+          }
+        ]
+      },
+      "retrieval_info": {
+        "total_docs": 1,
+        "response_time": 0.13705968856811523,
+        "error": null
+      }
+    }
+  ]
+}

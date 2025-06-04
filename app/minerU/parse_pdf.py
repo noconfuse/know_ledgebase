@@ -57,7 +57,8 @@ class PdfParser:
     def _parse_single_pdf(self, pdf_path: str, output_root: str) -> Dict:
         """处理单个 PDF 文件"""
         file_stem = Path(pdf_path).stem
-        output_dir = os.path.join(output_root, file_stem)
+        # 直接使用传入的output_root作为输出目录，不再创建子目录
+        output_dir = output_root
         os.makedirs(output_dir, exist_ok=True)
 
         # 原 parse_pdf 方法内容
@@ -143,20 +144,21 @@ class PdfParser:
         pipe_result.draw_layout(visual_outputs["layout_visualization"])
         pipe_result.draw_span(visual_outputs["spans_visualization"])
 
-        # 核心数据输出文件
+        # 核心数据输出文件 - 使用与Docling相同的文件名
         data_outputs = {
-            "markdown": build_path(".md"),
-            "content_list": build_path("_content_list.json"),
-            "intermediate_data": build_path("_middle.json"),
+            "markdown": os.path.join(output_dir, "content.md"),
+            "content_list": os.path.join(output_dir, "layout.json"),
+            "intermediate_data": os.path.join(output_dir, "result.json"),
         }
-        pipe_result.dump_md(md_writer, os.path.basename(data_outputs["markdown"]), img_rel_dir)
-        pipe_result.dump_content_list(md_writer, os.path.basename(data_outputs["content_list"]), img_rel_dir)
-        pipe_result.dump_middle_json(md_writer, os.path.basename(data_outputs["intermediate_data"]))
+        pipe_result.dump_md(md_writer, "content.md", img_rel_dir)
+        pipe_result.dump_content_list(md_writer, "layout.json", img_rel_dir)
+        pipe_result.dump_middle_json(md_writer, "result.json")
 
         return {**visual_outputs, **data_outputs}
 
     def _load_content_list(self, output_dir: str, file_name: str) -> list:
-        path = os.path.join(output_dir, f"{file_name}_content_list.json")
+        # 使用统一的layout.json文件名
+        path = os.path.join(output_dir, "layout.json")
         with open(path, 'r', encoding='utf-8') as f:
             content_data = json.load(f)
         return content_data
@@ -214,13 +216,18 @@ class PdfParser:
         return updated_content, "\n\n".join(markdown_lines)
 
     def _save_json(self, data: list, output_dir: str, base_name: str, suffix: str) -> str:
-        path = os.path.join(output_dir, f"{base_name}_{suffix}.json")
+        # 使用统一的文件名：layout.json用于内容列表，result.json用于其他数据
+        if suffix == "content_list":
+            path = os.path.join(output_dir, "layout.json")
+        else:
+            path = os.path.join(output_dir, "result.json")
         with open(path, 'w', encoding='utf-8') as f:
-            json.dump(data, f, indent=2, ensure_ascii=False)
+            json.dump(data, f, ensure_ascii=False, indent=2)
         return path
 
     def _save_markdown(self, content: str, output_dir: str, base_name: str) -> str:
-        path = os.path.join(output_dir, f"{base_name}_rebuilt.md")
+        # 使用统一的文件名：content.md
+        path = os.path.join(output_dir, "content.md")
         with open(path, 'w', encoding='utf-8') as f:
             f.write(content)
         return path

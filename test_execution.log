@@ -1,0 +1,39 @@
+2025-06-03 14:32:45,658 - __main__ - INFO - Dependencies check passed
+2025-06-03 14:32:45,659 - __main__ - INFO - Starting Document Service on 0.0.0.0:8001
+2025-06-03 14:32:45,659 - __main__ - INFO - Command: /usr/bin/python -m uvicorn apps.document_service:app --host 0.0.0.0 --port 8001 --reload --log-level info
+2025-06-03 14:32:45,659 - __main__ - INFO - Document Service started with PID: 183996
+2025-06-03 14:32:47,660 - __main__ - INFO - Starting RAG Service on 0.0.0.0:8002
+2025-06-03 14:32:47,660 - __main__ - INFO - Command: /usr/bin/python -m uvicorn apps.rag_service_app:app --host 0.0.0.0 --port 8002 --reload --log-level info
+2025-06-03 14:32:47,661 - __main__ - INFO - RAG Service started with PID: 184145
+2025-06-03 14:32:47,661 - __main__ - INFO - All services started successfully!
+2025-06-03 14:33:45,619 - __main__ - INFO - Received signal 15
+2025-06-03 14:33:45,619 - __main__ - INFO - Stopping all services...
+2025-06-03 14:33:45,620 - __main__ - INFO - Stopping Document Service (PID: 183996)
+2025-06-03 14:33:45,683 - __main__ - INFO - Document Service stopped
+2025-06-03 14:33:45,684 - __main__ - INFO - Stopping RAG Service (PID: 184145)
+2025-06-03 14:33:45,716 - __main__ - INFO - RAG Service stopped
+2025-06-03 14:33:45,716 - __main__ - INFO - All services stopped
+2025-06-03 14:33:45,716 - __main__ - INFO - Stopping all services...
+2025-06-03 14:33:45,717 - __main__ - INFO - All services stopped
+🔧 LlamaIndex RAG 服务启动器
+==================================================
+
+============================================================
+🚀 服务启动成功!
+============================================================
+📋 Document Service:
+   URL: http://0.0.0.0:8001
+   PID: 183996
+   文档: http://0.0.0.0:8001/docs
+
+📋 RAG Service:
+   URL: http://0.0.0.0:8002
+   PID: 184145
+   文档: http://0.0.0.0:8002/docs
+
+💡 使用说明:
+   - 文档解析服务 (端口 8001): 上传和解析文档
+   - RAG检索服务 (端口 8002): 向量检索和对话
+   - 按 Ctrl+C 停止所有服务
+============================================================
+

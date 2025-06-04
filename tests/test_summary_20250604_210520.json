@@ -1,0 +1,420 @@
+{
+  "timestamp": "2025-06-04T21:05:20.476680",
+  "total_test_cases": 59,
+  "overall_metrics": {
+    "keyword_recall": 0.8090597255851493,
+    "keyword_precision": 0.8090597255851493,
+    "article_recall": 0.8050847457627118,
+    "article_precision": 0.5903954802259886,
+    "semantic_relevance": 0.85028527212345,
+    "avg_response_time": 0.13556977045738092,
+    "success_rate": 1.0
+  },
+  "category_metrics": {
+    "基础定义": {
+      "keyword_recall": 1.0,
+      "article_recall": 0.6666666666666666,
+      "semantic_relevance": 0.9373161395390829,
+      "count": 3
+    },
+    "政府职责": {
+      "keyword_recall": 0.75,
+      "article_recall": 1.0,
+      "semantic_relevance": 0.872321081161499,
+      "count": 1
+    },
+    "部门职责": {
+      "keyword_recall": 1.0,
+      "article_recall": 1.0,
+      "semantic_relevance": 0.9281088709831238,
+      "count": 1
+    },
+    "公民义务": {
+      "keyword_recall": 1.0,
+      "article_recall": 1.0,
+      "semantic_relevance": 0.8017413914203644,
+      "count": 1
+    },
+    "企业职责": {
+      "keyword_recall": 1.0,
+      "article_recall": 1.0,
+      "semantic_relevance": 0.8484668135643005,
+      "count": 1
+    },
+    "审查程序": {
+      "keyword_recall": 1.0,
+      "article_recall": 1.0,
+      "semantic_relevance": 0.8752555608749389,
+      "count": 1
+    },
+    "验收程序": {
+      "keyword_recall": 0.5,
+      "article_recall": 0.0,
+      "semantic_relevance": 0.7817654013633728,
+      "count": 1
+    },
+    "检查程序": {
+      "keyword_recall": 1.0,
+      "article_recall": 1.0,
+      "semantic_relevance": 0.8663605650266012,
+      "count": 1
+    },
+    "建设违法": {
+      "keyword_recall": 1.0,
+      "article_recall": 1.0,
+      "semantic_relevance": 0.8664336204528809,
+      "count": 1
+    },
+    "违法行为": {
+      "keyword_recall": 0.0,
+      "article_recall": 0.0,
+      "semantic_relevance": 0.9696147441864014,
+      "count": 1
+    },
+    "火灾责任": {
+      "keyword_recall": 1.0,
+      "article_recall": 1.0,
+      "semantic_relevance": 0.9409467577934265,
+      "count": 1
+    },
+    "危险品场所": {
+      "keyword_recall": 1.0,
+      "article_recall": 1.0,
+      "semantic_relevance": 0.9182216376066208,
+      "count": 1
+    },
+    "群众活动": {
+      "keyword_recall": 1.0,
+      "article_recall": 1.0,
+      "semantic_relevance": 0.9721235632896423,
+      "count": 1
+    },
+    "明火管理": {
+      "keyword_recall": 0.75,
+      "article_recall": 1.0,
+      "semantic_relevance": 0.9885908961296082,
+      "count": 1
+    },
+    "救援队伍": {
+      "keyword_recall": 1.0,
+      "article_recall": 1.0,
+      "semantic_relevance": 0.9306178689002991,
+      "count": 1
+    },
+    "消防队伍": {
+      "keyword_recall": 0.75,
+      "article_recall": 1.0,
+      "semantic_relevance": 0.9235019087791443,
+      "count": 1
+    },
+    "质量监督": {
+      "keyword_recall": 0.0,
+      "article_recall": 0.0,
+      "semantic_relevance": 0.0,
+      "count": 1
+    },
+    "设施管理": {
+      "keyword_recall": 0.0,
+      "article_recall": 0.0,
+      "semantic_relevance": 0.0,
+      "count": 1
+    },
+    "宣传教育": {
+      "keyword_recall": 0.6428571428571428,
+      "article_recall": 1.0,
+      "semantic_relevance": 0.8979298969109852,
+      "count": 2
+    },
+    "适用范围": {
+      "keyword_recall": 1.0,
+      "article_recall": 0.0,
+      "semantic_relevance": 0.9681087136268616,
+      "count": 1
+    },
+    "特殊管辖": {
+      "keyword_recall": 1.0,
+      "article_recall": 1.0,
+      "semantic_relevance": 0.9709393382072449,
+      "count": 1
+    },
+    "法律效力": {
+      "keyword_recall": 1.0,
+      "article_recall": 1.0,
+      "semantic_relevance": 0.9940470457077026,
+      "count": 1
+    },
+    "消防规划": {
+      "keyword_recall": 1.0,
+      "article_recall": 1.0,
+      "semantic_relevance": 0.9160491228103638,
+      "count": 1
+    },
+    "建设标准": {
+      "keyword_recall": 1.0,
+      "article_recall": 1.0,
+      "semantic_relevance": 0.8772320508956909,
+      "count": 1
+    },
+    "审查制度": {
+      "keyword_recall": 1.0,
+      "article_recall": 1.0,
+      "semantic_relevance": 0.9505953391393026,
+      "count": 1
+    },
+    "单位职责": {
+      "keyword_recall": 0.8,
+      "article_recall": 1.0,
+      "semantic_relevance": 0.9746172428131104,
+      "count": 1
+    },
+    "重点单位": {
+      "keyword_recall": 0.25,
+      "article_recall": 1.0,
+      "semantic_relevance": 0.9970651268959045,
+      "count": 1
+    },
+    "材料标准": {
+      "keyword_recall": 1.0,
+      "article_recall": 1.0,
+      "semantic_relevance": 0.9952463507652283,
+      "count": 1
+    },
+    "产品安全": {
+      "keyword_recall": 1.0,
+      "article_recall": 1.0,
+      "semantic_relevance": 0.9065521955490112,
+      "count": 1
+    },
+    "禁止行为": {
+      "keyword_recall": 0.0,
+      "article_recall": 0.0,
+      "semantic_relevance": 0.7333540320396423,
+      "count": 1
+    },
+    "火灾报警": {
+      "keyword_recall": 1.0,
+      "article_recall": 1.0,
+      "semantic_relevance": 0.9713620543479919,
+      "count": 1
+    },
+    "应急疏散": {
+      "keyword_recall": 1.0,
+      "article_recall": 1.0,
+      "semantic_relevance": 0.9935218095779419,
+      "count": 1
+    },
+    "现场指挥": {
+      "keyword_recall": 0.625,
+      "article_recall": 1.0,
+      "semantic_relevance": 0.9432791471481323,
+      "count": 1
+    },
+    "特殊权利": {
+      "keyword_recall": 1.0,
+      "article_recall": 1.0,
+      "semantic_relevance": 0.8540439009666443,
+      "count": 1
+    },
+    "收费政策": {
+      "keyword_recall": 1.0,
+      "article_recall": 1.0,
+      "semantic_relevance": 0.9086712002754211,
+      "count": 1
+    },
+    "事故调查": {
+      "keyword_recall": 0.0,
+      "article_recall": 0.0,
+      "semantic_relevance": 0.0,
+      "count": 1
+    },
+    "政府监督": {
+      "keyword_recall": 1.0,
+      "article_recall": 1.0,
+      "semantic_relevance": 0.9409090876579285,
+      "count": 1
+    },
+    "隐患处理": {
+      "keyword_recall": 1.0,
+      "article_recall": 1.0,
+      "semantic_relevance": 0.9370477596918741,
+      "count": 1
+    },
+    "检查原则": {
+      "keyword_recall": 0.0,
+      "article_recall": 0.0,
+      "semantic_relevance": 0.0,
+      "count": 1
+    },
+    "公民监督": {
+      "keyword_recall": 1.0,
+      "article_recall": 1.0,
+      "semantic_relevance": 0.81023770570755,
+      "count": 1
+    },
+    "建设违法处罚": {
+      "keyword_recall": 1.0,
+      "article_recall": 1.0,
+      "semantic_relevance": 0.9100456595420837,
+      "count": 1
+    },
+    "设施违法处罚": {
+      "keyword_recall": 1.0,
+      "article_recall": 1.0,
+      "semantic_relevance": 0.834677442908287,
+      "count": 1
+    },
+    "个人违法处罚": {
+      "keyword_recall": 1.0,
+      "article_recall": 1.0,
+      "semantic_relevance": 0.897994065284729,
+      "count": 1
+    },
+    "技术服务违法": {
+      "keyword_recall": 1.0,
+      "article_recall": 1.0,
+      "semantic_relevance": 0.96882763504982,
+      "count": 1
+    },
+    "职务违法责任": {
+      "keyword_recall": 0.8333333333333334,
+      "article_recall": 0.5,
+      "semantic_relevance": 0.9579642117023468,
+      "count": 1
+    },
+    "产品标准": {
+      "keyword_recall": 1.0,
+      "article_recall": 1.0,
+      "semantic_relevance": 0.9501389712095261,
+      "count": 1
+    },
+    "制度规定": {
+      "keyword_recall": 1.0,
+      "article_recall": 1.0,
+      "semantic_relevance": 0.8951548039913177,
+      "count": 1
+    },
+    "检查制度": {
+      "keyword_recall": 0.3333333333333333,
+      "article_recall": 0.0,
+      "semantic_relevance": 0.935889720916748,
+      "count": 1
+    },
+    "应急机制": {
+      "keyword_recall": 1.0,
+      "article_recall": 1.0,
+      "semantic_relevance": 0.9139066934585571,
+      "count": 1
+    },
+    "伤亡抚恤": {
+      "keyword_recall": 1.0,
+      "article_recall": 1.0,
+      "semantic_relevance": 0.9836120009422302,
+      "count": 1
+    },
+    "持证上岗": {
+      "keyword_recall": 1.0,
+      "article_recall": 1.0,
+      "semantic_relevance": 0.9207651615142822,
+      "count": 1
+    },
+    "教育培训": {
+      "keyword_recall": 1.0,
+      "article_recall": 1.0,
+      "semantic_relevance": 0.833714634180069,
+      "count": 1
+    },
+    "公共设施": {
+      "keyword_recall": 1.0,
+      "article_recall": 1.0,
+      "semantic_relevance": 0.8683011531829834,
+      "count": 1
+    },
+    "专职消防队": {
+      "keyword_recall": 0.8571428571428571,
+      "article_recall": 1.0,
+      "semantic_relevance": 0.8752750754356384,
+      "count": 1
+    },
+    "设备使用": {
+      "keyword_recall": 1.0,
+      "article_recall": 1.0,
+      "semantic_relevance": 0.9400807321071625,
+      "count": 1
+    },
+    "设施检测": {
+      "keyword_recall": 0.0,
+      "article_recall": 0.0,
+      "semantic_relevance": 0.7457249760627747,
+      "count": 1
+    }
+  },
+  "difficulty_metrics": {
+    "easy": {
+      "keyword_recall": 1.0,
+      "article_recall": 1.0,
+      "semantic_relevance": 0.9049178534083896,
+      "count": 9
+    },
+    "medium": {
+      "keyword_recall": 0.8055555555555556,
+      "article_recall": 0.7878787878787878,
+      "semantic_relevance": 0.8549016994358313,
+      "count": 33
+    },
+    "hard": {
+      "keyword_recall": 0.7147759103641457,
+      "article_recall": 0.7352941176470589,
+      "semantic_relevance": 0.8124008407779768,
+      "count": 17
+    }
+  },
+  "best_performing_cases": [
+    {
+      "query": "什么是消防设施？",
+      "category": "基础定义",
+      "difficulty": "easy",
+      "keyword_recall": 1.0,
+      "article_recall": 1.0
+    },
+    {
+      "query": "消防产品包括哪些？",
+      "category": "基础定义",
+      "difficulty": "easy",
+      "keyword_recall": 1.0,
+      "article_recall": 1.0
+    },
+    {
+      "query": "应急管理部门的监督管理职责有哪些？",
+      "category": "部门职责",
+      "difficulty": "medium",
+      "keyword_recall": 1.0,
+      "article_recall": 1.0
+    }
+  ],
+  "worst_performing_cases": [
+    {
+      "query": "火灾事故调查由谁负责？",
+      "category": "事故调查",
+      "difficulty": "medium",
+      "keyword_recall": 0.0,
+      "article_recall": 0.0,
+      "error": null
+    },
+    {
+      "query": "消防监督检查应该遵循什么原则？",
+      "category": "检查原则",
+      "difficulty": "medium",
+      "keyword_recall": 0.0,
+      "article_recall": 0.0,
+      "error": null
+    },
+    {
+      "query": "建筑消防设施检测的要求是什么？",
+      "category": "设施检测",
+      "difficulty": "medium",
+      "keyword_recall": 0.0,
+      "article_recall": 0.0,
+      "error": null
+    }
+  ]
+}
