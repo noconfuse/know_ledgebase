@@ -1,10 +1,10 @@
 # LlamaIndex RAG 知识库系统
 
-基于 LlamaIndex 框架的智能文档解析和检索增强生成(RAG)系统，提供两个独立的 FastAPI 服务：文档解析服务和 RAG 检索增强服务。
+基于 LlamaIndex 框架的智能文档解析和检索增强生成(RAG)系统，采用前后端分离架构，提供两个独立的 FastAPI 服务。
 
 ## 🚀 项目特性
 
-### 文档解析服务 (端口 8001)
+### 后台服务 (端口 8001) - Backend Service
 - ✅ 基于 Docling 的高质量文档解析
 - ✅ 支持多种文档格式：PDF、DOCX、DOC、TXT、MD、HTML、PPTX、XLSX
 - ✅ OCR 支持，GPU 加速处理图片和扫描件
@@ -15,14 +15,19 @@
 - ✅ Chunk 级别关键词提取
 - ✅ 文档级别摘要生成
 - ✅ 文档级别问答对生成
+- ✅ 统一API响应格式
+- ✅ 全局异常处理
 
-### RAG 检索增强服务 (端口 8002)
+### 前台服务 (端口 8002) - Frontend Service
 - ✅ 混合检索（向量检索 + BM25 + 重排序）
 - ✅ 检索召回测试接口
 - ✅ 第三方 LLM API 支持，可灵活切换
 - ✅ 流式对话接口
 - ✅ 多轮对话支持
 - ✅ 会话管理
+- ✅ 用户认证和授权
+- ✅ 统一API响应格式
+- ✅ 全局异常处理
 - ✅ LlamaIndex 最佳实践
 
 ## 📋 系统要求
@@ -80,19 +85,19 @@ python start_services.py
 
 ### 方式二：分别启动服务
 
-**启动文档解析服务：**
+**启动后台服务（文档解析）：**
 ```bash
-uvicorn apps.document_service:app --host 0.0.0.0 --port 8001 --reload
+uvicorn apps.backend_service:app --host 0.0.0.0 --port 8001 --reload
 ```
 
-**启动 RAG 检索服务：**
+**启动前台服务（RAG检索）：**
 ```bash
-uvicorn apps.rag_service_app:app --host 0.0.0.0 --port 8002 --reload
+uvicorn apps.frontend_service:app --host 0.0.0.0 --port 8002 --reload
 ```
 
 ## 📖 API 使用指南
 
-### 文档解析服务 API
+### 后台服务 API (端口 8001)
 
 #### 1. 上传文件解析
 ```bash
@@ -135,7 +140,7 @@ curl -X POST "http://localhost:8001/vector-store/build" \
   }'
 ```
 
-### RAG 检索服务 API
+### 前台服务 API (端口 8002)
 
 #### 1. 加载向量索引
 ```bash
@@ -202,13 +207,27 @@ curl -X POST "http://localhost:8002/test/recall" \
 
 ```
 know_ledgebase/
-├── apps/                    # FastAPI 应用
-│   ├── document_service.py  # 文档解析服务
-│   └── rag_service_app.py   # RAG 检索服务
+├── apps/                    # FastAPI 应用服务
+│   ├── backend_service.py   # 后台服务（文档解析、向量构建）
+│   └── frontend_service.py  # 前台服务（RAG检索、对话）
+├── auth/                    # 认证模块
+│   ├── auth_routes.py       # 认证路由
+│   ├── dependencies.py      # 认证依赖
+│   └── schemas.py          # 认证数据模型
+├── common/                  # 公共模块
+│   ├── response.py         # 统一响应格式
+│   └── exception_handler.py # 全局异常处理
+├── models/                  # 数据模型
+│   ├── user_models.py      # 用户模型
+│   ├── user_dao.py         # 用户数据访问
+│   ├── chat_models.py      # 聊天模型
+│   └── chat_dao.py         # 聊天数据访问
 ├── services/                # 核心服务模块
 │   ├── document_parser.py   # 文档解析器
 │   ├── vector_store_builder.py # 向量数据库构建器
 │   └── rag_service.py       # RAG 检索服务
+├── utils/                   # 工具模块
+│   └── logging_config.py    # 日志配置
 ├── config.py               # 配置文件
 ├── requirements.txt        # 依赖列表
 ├── start_services.py       # 启动脚本
@@ -305,8 +324,8 @@ know_ledgebase/
 tail -f app.log
 
 # 查看特定服务日志
-grep "Document Service" app.log
-grep "RAG Service" app.log
+grep "Backend Service" app.log
+grep "Frontend Service" app.log
 ```
 
 ## 📄 许可证

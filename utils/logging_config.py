@@ -78,6 +78,12 @@ def setup_logging():
         '%(asctime)s - %(name)s - %(levelname)s - %(funcName)s:%(lineno)d - %(message)s'
     )
     
+    # 带异常堆栈的详细格式化器
+    detailed_with_exc_formatter = logging.Formatter(
+        '%(asctime)s - %(name)s - %(levelname)s - %(funcName)s:%(lineno)d - %(message)s',
+        datefmt='%Y-%m-%d %H:%M:%S'
+    )
+    
     simple_formatter = logging.Formatter(
         '%(asctime)s - %(levelname)s - %(message)s'
     )
@@ -126,7 +132,7 @@ def setup_logging():
             encoding='utf-8'
         )
         error_handler.setLevel(logging.ERROR)
-        error_handler.setFormatter(detailed_formatter)
+        error_handler.setFormatter(detailed_with_exc_formatter)
         root_logger.addHandler(error_handler)
         
         # 进度日志处理器

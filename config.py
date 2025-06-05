@@ -26,6 +26,9 @@ class Settings(BaseSettings):
     RAG_SERVICE_HOST: str = "0.0.0.0"
     RAG_SERVICE_PORT: int = 8002
     
+    # CORS配置
+    ALLOWED_ORIGINS: List[str] = ["*"]
+    
     # 模型路径配置
     EMBED_MODEL_PATH: str = Field(default_factory=lambda: os.path.join(os.getenv("MODEL_BASE_DIR", "/home/ubuntu/workspace/models_dir/models/"), "BAAI_bge-large-zh-v1.5"))
     RERANK_MODEL_PATH: str = Field(default_factory=lambda: os.path.join(os.getenv("MODEL_BASE_DIR", "/home/ubuntu/workspace/models_dir/models/"), "BAAI_bge-reranker-v2-m3"))
@@ -87,7 +90,7 @@ class Settings(BaseSettings):
     # 任务管理配置
     TASK_EXPIRE_TIME: int = 3600  # 1小时
     MAX_CONCURRENT_TASKS: int = 3
-    MAX_FILE_SIZE: int = 100 * 1024 * 1024  # 100MB
+    MAX_FILE_SIZE: int = 800 * 1024 * 1024  # 800MB
     
     # 日志配置
     LOG_LEVEL: str = "INFO"
@@ -101,6 +104,12 @@ class Settings(BaseSettings):
     # 存储配置
     UPLOAD_DIR: str = Field(default_factory=lambda: os.path.join(os.getenv("KNOWLEDGE_BASE_DIR", "/home/ubuntu/workspace/knowledge/"), "uploads"))
     OUTPUT_DIR: str = Field(default_factory=lambda: os.path.join(os.getenv("KNOWLEDGE_BASE_DIR", "/home/ubuntu/workspace/knowledge/"), "outputs"))
+    
+    # JWT认证配置
+    JWT_SECRET_KEY: str = "your-secret-key-change-in-production-please-use-a-strong-random-key"
+    JWT_ALGORITHM: str = "HS256"
+    JWT_ACCESS_TOKEN_EXPIRE_HOURS: int = 24
+    JWT_REFRESH_TOKEN_EXPIRE_DAYS: int = 7
     
     class Config:
         env_file = ".env"

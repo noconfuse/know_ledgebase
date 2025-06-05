@@ -20,6 +20,7 @@ class ChatSession(Base):
     
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     session_id = Column(String(255), unique=True, nullable=False, index=True)
+    user_id = Column(UUID(as_uuid=True), nullable=False, index=True)  # 关联用户ID
     index_ids = Column(JSON, nullable=False)  # 存储索引ID列表
     created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
     last_activity = Column(DateTime, default=datetime.utcnow, nullable=False)
@@ -37,6 +38,7 @@ class ChatSession(Base):
         return {
             "id": str(self.id),
             "session_id": self.session_id,
+            "user_id": str(self.user_id),
             "index_ids": self.index_ids,
             "created_at": self.created_at.isoformat() if self.created_at else None,
             "last_activity": self.last_activity.isoformat() if self.last_activity else None,

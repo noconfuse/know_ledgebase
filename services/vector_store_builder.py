@@ -9,7 +9,8 @@ import logging
 from concurrent.futures import ThreadPoolExecutor
 
 from llama_index.core import Document, VectorStoreIndex, StorageContext
-from llama_index.core.node_parser import SentenceSplitter, MarkdownNodeParser, HTMLNodeParser
+from llama_index.core.node_parser import SentenceSplitter, HTMLNodeParser
+from common.custom_markdown_node_parser import CustomMarkdownNodeParser as MarkdownNodeParser
 from llama_index.core.extractors import (
     TitleExtractor,
     KeywordExtractor,
@@ -26,7 +27,7 @@ import faiss
 
 from config import settings
 from services.document_parser import document_parser, TaskStatus
-from postgres_vector_store import create_postgres_vector_store_builder
+from common.postgres_vector_store import create_postgres_vector_store_builder
 
 logger = logging.getLogger(__name__)
 
@@ -58,7 +59,8 @@ class VectorStoreTask:
             "started_at": self.started_at,
             "completed_at": self.completed_at,
             "processed_files": self.processed_files,
-            "total_files": self.total_files
+            "total_files": self.total_files,
+            "index_description": self.config.get("index_description")
         }
 
 class VectorStoreBuilder:
@@ -129,7 +131,8 @@ class VectorStoreBuilder:
     async def build_vector_store(
         self, 
         directory_path: str, 
-        config: Optional[Dict[str, Any]] = None
+        config: Optional[Dict[str, Any]] = None,
+        index_description: Optional[str] = None
     ) -> str:
         """构建向量数据库"""
         
@@ -149,6 +152,10 @@ class VectorStoreBuilder:
             "chunk_size": settings.CHUNK_SIZE,
             "chunk_overlap": settings.CHUNK_OVERLAP
         }
+        
+        # 添加索引描述
+        if index_description:
+            task_config["index_description"] = index_description
         
         task = VectorStoreTask(task_id, directory_path, task_config)
         self.tasks[task_id] = task
@@ -367,6 +374,18 @@ class VectorStoreBuilder:
             stats_time = time.time() - start_time
             logger.info(f"Statistics generated in {stats_time:.2f}s")
             
+            # 9. 保存索引信息到数据库
+            logger.info("Saving index information to database")
+            start_time = time.time()
+            try:
+                self._save_index_info_to_db(task.task_id, task.config.get("index_description"))
+                db_time = time.time() - start_time
+                logger.info(f"Index information saved to database in {db_time:.2f}s")
+            except Exception as e:
+                db_time = time.time() - start_time
+                logger.error(f"Failed to save index information to database after {db_time:.2f}s: {e}")
+                # 继续执行，不影响索引创建的主流程
+            
             result = {
                 "index_id": task.task_id,
                 "index_path": index_path,
@@ -443,7 +462,6 @@ class VectorStoreBuilder:
                         
                         # 只在有页码信息时才添加页码相关元数据
                         if page_indices:
-                            metadata['page_indices'] = list(sorted(page_indices))
                             metadata['page_count'] = len(page_indices)
                             metadata['first_page'] = min(page_indices)
                             metadata['last_page'] = max(page_indices)
@@ -900,6 +918,33 @@ class VectorStoreBuilder:
             "nodes_with_page_percentage": f"{nodes_with_page/len(nodes)*100:.2f}%" if nodes else "0%",
             "processing_time": time.time() - task.started_at if task.started_at else 0
         }
+    
+    def _save_index_info_to_db(self, index_id: str, index_description: Optional[str] = None) -> None:
+        """保存索引信息到数据库"""
+        try:
+            from models.database import SessionLocal
+            from dao.index_dao import IndexDAO
+            
+            # 创建数据库会话
+            db = SessionLocal()
+            try:
+                # 检查索引是否已存在
+                existing_index = IndexDAO.get_index_by_id(db, index_id)
+                
+                if existing_index:
+                    # 更新索引描述
+                    if index_description is not None:
+                        IndexDAO.update_index_description(db, index_id, index_description)
+                        logger.info(f"Updated description for index: {index_id}")
+                else:
+                    # 创建新索引信息
+                    IndexDAO.create_index(db, index_id, index_description)
+                    logger.info(f"Created new index info in database: {index_id}")
+            finally:
+                db.close()
+        except Exception as e:
+            logger.error(f"Error saving index info to database: {e}")
+            raise
     
     def get_task_status(self, task_id: str) -> Optional[Dict[str, Any]]:
         """获取任务状态"""

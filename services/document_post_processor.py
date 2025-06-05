@@ -55,7 +55,7 @@ class DocumentPostProcessor:
         
         # 动态层级管理
         pattern_to_level = {}  # pattern索引 -> level映射
-        next_level = 1  # 下一个可分配的level
+        curr_level = 1  # 当前层级
         skip_next = False  # 标记是否跳过下一个项目（用于跳过目录内容）
 
         for i, item in enumerate(content_data):
@@ -90,15 +90,13 @@ class DocumentPostProcessor:
                 if pattern_idx >= 0:  # 匹配到模式
                     if pattern_idx in pattern_to_level:
                         # 已知模式，使用已分配的level
-                        level = pattern_to_level[pattern_idx]
+                        curr_level = pattern_to_level[pattern_idx]
                     else:
-                        # 新模式，分配新的level
-                        level = next_level
-                        pattern_to_level[pattern_idx] = level
-                        next_level += 1
+                        # 新模式，curr_level+1并记录关联
+                        curr_level += 1
+                        pattern_to_level[pattern_idx] = curr_level
 
-                    processed["text_level"] = level
-                    curr_level = level
+                    processed["text_level"] = curr_level
                     
                     # 生成 Markdown
                     if self.has_chinese_punctuation(text) and len(text) > 20:  # 判断是否为句子
@@ -110,18 +108,23 @@ class DocumentPostProcessor:
                         # 直接使用匹配到的内容作为标题
                         md_line = f"{'#' * curr_level} {text}"
                 else:
-                    # 未匹配到模式，作为普通文本
-                    md_line = text
+                    # 未匹配到模式，使用原始text_level字段
+                    if item.get('text_level'):
+                        # 使用原始text_level作为curr_level，并重新记录关联
+                        curr_level = item.get('text_level')
+                        processed["text_level"] = curr_level
+                        pattern_to_level = {}
+                        md_line = f"{'#' * curr_level} {text}"
+                    else:
+                        # 作为普通文本
+                        md_line = text
 
             elif item["type"] == "image":
                 md_line = f"![Image]({item.get('img_path', '')})"
 
             elif item["type"] == "table":
-                md_line = (f"![Table]({item['img_path']})" 
-                           if item.get('img_path') 
-                           else item.get('table_body', ''))
+                md_line = f"{item.get('table_body', '')}"
             updated_content.append(processed)
-            print(md_line)
             markdown_lines.append(md_line)
 
         return updated_content, "\n\n".join(markdown_lines)
@@ -186,32 +189,32 @@ class DocumentPostProcessor:
     def _save_processed_files(self, content_list: List[Dict[str, Any]], markdown: str, output_dir: str) -> Dict[str, str]:
         """保存处理后的文件，覆盖原始解析结果"""
         try:
-            # 覆盖原始的内容列表文件
+            # 原始文件路径
             content_path = os.path.join(output_dir, "content_list.json")
+            md_path = os.path.join(output_dir, "content.md")
+            
+            # 备份原始文件
+            if os.path.exists(content_path):
+                backup_content_path = os.path.join(output_dir, "content_list.bak.json")
+                os.rename(content_path, backup_content_path)
+                
+            if os.path.exists(md_path):
+                backup_md_path = os.path.join(output_dir, "content.bak.md")
+                os.rename(md_path, backup_md_path)
+            
+            # 保存新的内容列表文件
             with open(content_path, 'w', encoding='utf-8') as f:
                 json.dump(content_list, f, ensure_ascii=False, indent=2)
             
-            # 覆盖原始的Markdown文件
-            md_path = os.path.join(output_dir, "content.md")
+            # 保存新的Markdown文件
             with open(md_path, 'w', encoding='utf-8') as f:
                 f.write(markdown)
             
-            # 同时保存增强版本作为备份
-            enhanced_content_path = os.path.join(output_dir, "content_list_enhanced.json")
-            with open(enhanced_content_path, 'w', encoding='utf-8') as f:
-                json.dump(content_list, f, ensure_ascii=False, indent=2)
-            
-            enhanced_md_path = os.path.join(output_dir, "content_enhanced.md")
-            with open(enhanced_md_path, 'w', encoding='utf-8') as f:
-                f.write(markdown)
-            
-            logger.info(f"增强处理结果已覆盖原始文件: {content_path}, {md_path}")
+            logger.info(f"原始文件已备份并更新: {content_path}, {md_path}")
             
             return {
                 "content_json": content_path,
                 "markdown": md_path,
-                "enhanced_content_json": enhanced_content_path,
-                "enhanced_markdown": enhanced_md_path
             }
         except Exception as e:
             logger.error(f"保存处理后的文件失败: {output_dir}, 错误: {e}")

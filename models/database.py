@@ -12,7 +12,28 @@ from contextlib import contextmanager
 from typing import Generator
 
 from config import settings
-from models.chat_models import Base
+from models.chat_models import Base as ChatBase
+from models.user_models import Base as UserBase
+from models.index_models import Base as IndexBase
+from sqlalchemy.ext.declarative import declarative_base
+
+# 合并所有模型的Base
+Base = declarative_base()
+
+# 导入所有模型以确保它们被注册
+from models.chat_models import ChatSession, ChatMessage
+from models.user_models import User, UserSession
+from models.index_models import IndexInfo
+
+# 将所有表添加到统一的Base中
+for table in ChatBase.metadata.tables.values():
+    table.tometadata(Base.metadata)
+    
+for table in UserBase.metadata.tables.values():
+    table.tometadata(Base.metadata)
+    
+for table in IndexBase.metadata.tables.values():
+    table.tometadata(Base.metadata)
 
 logger = logging.getLogger(__name__)
 
@@ -33,9 +54,8 @@ SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 # 创建线程安全的会话
 db_session = scoped_session(SessionLocal)
 
-@contextmanager
 def get_db() -> Generator:
-    """获取数据库会话的上下文管理器"""
+    """获取数据库会话的依赖注入函数"""
     session = SessionLocal()
     try:
         yield session

@@ -1,25 +1,28 @@
-import asyncio
 import time
 import uuid
-from typing import Dict, List, Optional, Any, AsyncGenerator, Tuple
+from typing import Dict, List, Optional, Any, AsyncGenerator, Tuple, ClassVar
 from pathlib import Path
 import logging
 import json
 from datetime import datetime
+import re
 
 from llama_index.core import (
     VectorStoreIndex, 
     StorageContext, 
     load_index_from_storage,
-    Settings,
-    get_response_synthesizer
 )
 from llama_index.core.retrievers import (
     VectorIndexRetriever,
     QueryFusionRetriever
 )
 from llama_index.retrievers.bm25 import BM25Retriever
+from llama_index.core.tools import RetrieverTool, ToolMetadata
+from llama_index.core.selectors import (
+    PydanticSingleSelector,
+)
 from llama_index.core.query_engine import RetrieverQueryEngine
+from llama_index.core.retrievers import RouterRetriever
 from llama_index.core.chat_engine import CondensePlusContextChatEngine,SimpleChatEngine
 from llama_index.core.memory import ChatMemoryBuffer
 from llama_index.core.postprocessor import SentenceTransformerRerank, SimilarityPostprocessor
@@ -28,14 +31,213 @@ from llama_index.embeddings.huggingface import HuggingFaceEmbedding
 from llama_index.llms.huggingface import HuggingFaceLLM
 from llama_index.llms.openai_like import OpenAILike
 from llama_index.core.base.llms.types import ChatMessage, MessageRole
+from llama_index.core.postprocessor.types import BaseNodePostprocessor # Added import
 
 from config import settings
-from postgres_vector_store import create_postgres_vector_store_builder
+from common.postgres_vector_store import create_postgres_vector_store_builder, PostgresVectorStoreBuilder
 from utils.logging_config import setup_logging
-from models import ChatDAO, init_db
+from models import init_db
+from dao.chat_dao import ChatDAO
 
 setup_logging()
 logger = logging.getLogger(__name__)
+
+# Custom Node Postprocessor for Keyword-based Reranking
+class KeywordMetadataReranker(BaseNodePostprocessor):
+    keyword_field: str = "excerpt_keywords"
+    boost_factor: float = 1.2  # Boost score by 20% for keyword match
+    min_score_threshold: float = 0.1 # Only apply boost if original score is above this
+
+    def _postprocess_nodes(
+        self,
+        nodes: List[NodeWithScore],
+        query_bundle: Optional[QueryBundle] = None,
+    ) -> List[NodeWithScore]:
+        if query_bundle is None or not nodes:
+            return nodes
+
+        # Simple query keyword extraction (lowercase, split by space)
+        # Consider more sophisticated keyword extraction for queries if needed
+        query_keywords = set(query_bundle.query_str.lower().split())
+        if not query_keywords:
+            return nodes
+
+        new_nodes = []
+        for node_with_score in nodes:
+            original_score = node_with_score.score or 0.0
+            boost_applied = False
+
+            if original_score >= self.min_score_threshold:
+                node = node_with_score.node
+                metadata = node.metadata
+                
+                excerpt_keywords_str = metadata.get(self.keyword_field, "")
+                if isinstance(excerpt_keywords_str, str) and excerpt_keywords_str:
+                    actual_keywords_part = excerpt_keywords_str
+                    # Remove potential surrounding single quotes if present
+                    if actual_keywords_part.startswith("'") and actual_keywords_part.endswith("'"):
+                        actual_keywords_part = actual_keywords_part[1:-1]
+                    
+                    prefix = "关键词:"
+                    if actual_keywords_part.startswith(prefix):
+                        actual_keywords_part = actual_keywords_part[len(prefix):]
+                    
+                    node_keywords = set(k.strip().lower() for k in actual_keywords_part.split(',') if k.strip())
+                    
+                    if query_keywords.intersection(node_keywords):
+                        node_with_score.score = original_score * self.boost_factor
+                        boost_applied = True
+                        # logger.debug(f"Boosted node {node.node_id} for query '{query_bundle.query_str}' due to keyword match. Score: {original_score} -> {node_with_score.score}")
+            
+            new_nodes.append(node_with_score)
+        
+        # Re-sort nodes by score only if any boost was applied, to maintain stability otherwise
+        # This sort should happen after all nodes are processed.
+        # if any(n.score != orig_score for n, orig_score in zip(new_nodes, [nws.score for nws in nodes])):
+        new_nodes.sort(key=lambda x: x.score or 0.0, reverse=True)
+        
+        return new_nodes
+
+# Custom Node Postprocessor for Header Path-based Reranking
+class HeaderPathReranker(BaseNodePostprocessor):
+    """基于header_path的重排序器，专门处理章节条款查询"""
+    header_path_field: str = "header_path"
+    current_header_field: str = "current_header"
+    boost_factor: float = 2.0  # 更高的提升因子，因为章节匹配很重要
+    min_score_threshold: float = 0.05  # 较低的阈值，允许更多节点被提升
+    
+    # 预编译正则表达式模式
+    chapter_patterns: ClassVar[List[str]] = [
+        r'第([一二三四五六七八九十百千万\d]+)章',  # 第X章
+        r'第([一二三四五六七八九十百千万\d]+)节',  # 第X节
+        r'第([一二三四五六七八九十百千万\d]+)条',  # 第X条
+        r'第([一二三四五六七八九十百千万\d]+)款',  # 第X款
+        r'第([一二三四五六七八九十百千万\d]+)项',  # 第X项
+        r'([一二三四五六七八九十百千万\d]+)、',    # X、
+        r'\(([一二三四五六七八九十百千万\d]+)\)',  # (X)
+    ]
+        
+    def _extract_structural_elements(self, text: str) -> List[str]:
+        """从文本中提取结构化元素（章、节、条等）"""
+        elements = []
+        for pattern in self.chapter_patterns:
+            matches = re.findall(pattern, text)
+            elements.extend(matches)
+        return elements
+    
+    def _normalize_number(self, num_str: str) -> str:
+        """标准化数字表示（中文数字转阿拉伯数字）"""
+        chinese_to_arabic = {
+            '一': '1', '二': '2', '三': '3', '四': '4', '五': '5',
+            '六': '6', '七': '7', '八': '8', '九': '9', '十': '10',
+            '十一': '11', '十二': '12', '十三': '13', '十四': '14', '十五': '15',
+            '十六': '16', '十七': '17', '十八': '18', '十九': '19', '二十': '20'
+        }
+        
+        # 处理更复杂的中文数字
+        if num_str in chinese_to_arabic:
+            return chinese_to_arabic[num_str]
+        
+        # 处理"二十一"到"九十九"的情况
+        if len(num_str) == 3 and num_str[1] == '十':
+            tens = chinese_to_arabic.get(num_str[0], num_str[0])
+            ones = chinese_to_arabic.get(num_str[2], num_str[2])
+            if tens.isdigit() and ones.isdigit():
+                return str(int(tens) * 10 + int(ones))
+        
+        # 如果已经是阿拉伯数字，直接返回
+        if num_str.isdigit():
+            return num_str
+            
+        return num_str
+    
+    def _calculate_header_path_similarity(self, query_elements: List[str], header_path: str) -> float:
+        """计算查询元素与header_path的相似度"""
+        if not query_elements or not header_path:
+            return 0.0
+        
+        # 提取header_path中的结构化元素
+        path_elements = self._extract_structural_elements(header_path)
+        
+        if not path_elements:
+            return 0.0
+        
+        # 标准化所有元素
+        normalized_query = [self._normalize_number(elem) for elem in query_elements]
+        normalized_path = [self._normalize_number(elem) for elem in path_elements]
+        
+        # 计算匹配度
+        matches = 0
+        for q_elem in normalized_query:
+            if q_elem in normalized_path:
+                matches += 1
+        
+        # 返回匹配比例，考虑查询元素的重要性
+        similarity = matches / len(normalized_query)
+        
+        # 如果匹配了多个元素，给予额外奖励
+        if matches > 1:
+            similarity *= 1.5
+            
+        return min(similarity, 1.0)
+    
+    def _postprocess_nodes(
+        self,
+        nodes: List[NodeWithScore],
+        query_bundle: Optional[QueryBundle] = None,
+    ) -> List[NodeWithScore]:
+        if query_bundle is None or not nodes:
+            return nodes
+        
+        query = query_bundle.query_str
+        
+        # 提取查询中的结构化元素
+        query_elements = self._extract_structural_elements(query)
+        
+        if not query_elements:
+            # 如果查询中没有结构化元素，不进行重排序
+            return nodes
+        
+        logger.debug(f"Found structural elements in query: {query_elements}")
+        
+        new_nodes = []
+        boost_applied_count = 0
+        
+        for node_with_score in nodes:
+            original_score = node_with_score.score or 0.0
+            
+            if original_score >= self.min_score_threshold:
+                node = node_with_score.node
+                metadata = node.metadata
+                
+                # 获取header_path
+                header_path = metadata.get(self.header_path_field, "")
+                current_header = metadata.get(self.current_header_field, "")
+                
+                # 计算与header_path的相似度
+                path_similarity = self._calculate_header_path_similarity(query_elements, header_path)
+                header_similarity = self._calculate_header_path_similarity(query_elements, current_header)
+                
+                # 取最高相似度
+                max_similarity = max(path_similarity, header_similarity)
+                
+                if max_similarity > 0:
+                    # 根据相似度调整boost因子
+                    dynamic_boost = 1.0 + (self.boost_factor - 1.0) * max_similarity
+                    node_with_score.score = original_score * dynamic_boost
+                    boost_applied_count += 1
+                    
+                    logger.debug(f"Boosted node {node.node_id[:8]}... for structural query. "
+                               f"Similarity: {max_similarity:.2f}, Score: {original_score:.3f} -> {node_with_score.score:.3f}")
+            
+            new_nodes.append(node_with_score)
+        
+        if boost_applied_count > 0:
+            logger.info(f"Applied header path boost to {boost_applied_count} nodes")
+            # 重新排序
+            new_nodes.sort(key=lambda x: x.score or 0.0, reverse=True)
+        
+        return new_nodes
 
 class ConversationSession:
     """对话会话"""
@@ -109,6 +311,11 @@ class RAGService:
             self._setup_models()
             self.loaded_indexes: Dict[str, VectorStoreIndex] = {}
             self.sessions: Dict[str, ConversationSession] = {}
+            self._retriever_tool_cache: Dict[str, RetrieverTool] = {} # Modified cache type hint
+            
+            # 自动加载所有vector_store表的索引
+            self._auto_load_vector_store_indexes()
+            
             self._initialized = True
             logger.info("RAGService initialized")
     
@@ -133,6 +340,8 @@ class RAGService:
                 top_n=settings.RERANK_TOP_K,
                 device=settings.GPU_DEVICE if settings.USE_GPU else "cpu"
             )
+            self.keyword_reranker = KeywordMetadataReranker() # Initialize custom reranker
+            self.header_path_reranker = HeaderPathReranker() # Initialize header path reranker
             
             # 初始化LLM
             self._setup_llm()
@@ -160,7 +369,8 @@ class RAGService:
                 "context_window": settings.LLM_CONTEXT_WINDOW,
                 "is_chat_model": True,
                 "timeout": 60.0,  # 添加超时设置
-                "max_retries": 3   # 添加重试设置
+                "max_retries": 3,   # 添加重试设置
+                "is_function_calling_model": True
             }
             
             # 只有当api_version不为空时才添加
@@ -186,6 +396,107 @@ class RAGService:
                 temperature=settings.LLM_TEMPERATURE
             )
             logger.info(f"Using local LLM: {settings.LLM_MODEL_PATH}")
+
+    def _auto_load_vector_store_indexes(self):
+        """自动加载所有vector_store表的索引"""
+        try:
+            if settings.VECTOR_STORE_TYPE != "postgres":
+                logger.info("Vector store type is not postgres, skipping auto-load")
+                return
+            
+            table_prefix = f"data_{settings.POSTGRES_TABLE_NAME}"
+            # 获取所有vector_store表
+            tables = PostgresVectorStoreBuilder.get_vector_store_tables(
+                host=settings.POSTGRES_HOST,
+                port=settings.POSTGRES_PORT,
+                database=settings.POSTGRES_DATABASE,
+                user=settings.POSTGRES_USER,
+                password=settings.POSTGRES_PASSWORD,
+                table_prefix=table_prefix
+            )
+            
+            if not tables:
+                logger.info(f"No {table_prefix} tables found")
+                return
+            
+            logger.info(f"Found {len(tables)} {settings.POSTGRES_TABLE_NAME} tables, starting auto-load...")
+            
+            # 同步加载所有索引（避免事件循环冲突）
+            success_count = 0
+            for table_name in tables:
+                try:
+                    # 从表名提取索引ID
+                    # 例如: vector_store_746b827d_94cb_4f3a -> 746b827d-94cb-4f3a
+                    table_prefix_with_underscore = f"{table_prefix}_"
+                    if table_name.startswith(table_prefix_with_underscore):
+                        index_id = table_name[len(table_prefix_with_underscore):].replace("_", "-")
+                        # 同步加载索引
+                        logger.info(table_name)
+                        if self._load_index_sysn(index_id):
+                            success_count += 1
+                            logger.info(f"Successfully loaded index {index_id} from table {table_name}")
+                        else:
+                            logger.error(f"Failed to load index {index_id} from table {table_name}")
+                except Exception as e:
+                    logger.error(f"Error loading index from table {table_name}: {e}")
+            
+            logger.info(f"Auto-loaded {success_count}/{len(tables)} indexes successfully")
+            
+        except Exception as e:
+            logger.error(f"Error in auto-loading vector store indexes: {e}")
+    
+
+    def _load_index_sysn(self, index_id: str) -> bool:
+        """同步加载向量索引"""
+        try:
+            if index_id in self.loaded_indexes:
+                logger.info(f"Index {index_id} already loaded")
+                return True
+            
+            if settings.VECTOR_STORE_TYPE == "postgres":
+                # 加载PostgreSQL向量索引
+                logger.info(f"Loading PostgreSQL vector index: {index_id}")
+                
+                # 创建PostgreSQL向量存储构建器
+                postgres_builder = create_postgres_vector_store_builder(
+                    host=settings.POSTGRES_HOST,
+                    port=settings.POSTGRES_PORT,
+                    database=settings.POSTGRES_DATABASE,
+                    user=settings.POSTGRES_USER,
+                    password=settings.POSTGRES_PASSWORD,
+                    table_name=f"{settings.POSTGRES_TABLE_NAME}_{index_id.replace('-', '_')}",
+                    embed_dim=settings.VECTOR_DIM
+                )
+                
+                # 加载索引
+                index = postgres_builder.load_index(self.embed_model)
+                if index is None:
+                    logger.error(f"Failed to load PostgreSQL index: {index_id}")
+                    return False
+                    
+            else:
+                # 加载FAISS索引（默认行为）
+                index_path = Path(settings.INDEX_STORE_PATH) / index_id
+                if not index_path.exists():
+                    logger.error(f"Index path not found: {index_path}")
+                    return False
+                
+                # 加载存储上下文
+                storage_context = StorageContext.from_defaults(persist_dir=str(index_path))
+                
+                # 加载索引
+                index = load_index_from_storage(
+                    storage_context,
+                    embed_model=self.embed_model
+                )
+            
+            self.loaded_indexes[index_id] = index
+            logger.info(f"Index {index_id} loaded successfully")
+            return True
+            
+        except Exception as e:
+            logger.error(f"Failed to load index {index_id}: {e}")
+            return False
     
     async def load_index(self, index_id: str) -> bool:
         """加载向量索引"""
@@ -251,7 +562,6 @@ class RAGService:
             # 确保索引已加载
             if not await self.load_index(index_id):
                 raise ValueError(f"Failed to load index: {index_id}")
-            
             index = self.loaded_indexes[index_id]
             top_k = top_k or settings.RETRIEVAL_TOP_K
             similarity_threshold = similarity_threshold or settings.SIMILARITY_THRESHOLD
@@ -295,14 +605,25 @@ class RAGService:
                 query_bundle = QueryBundle(query_str=query)
                 retrieved_nodes = await vector_retriever.aretrieve(query_bundle)
             
-            # 应用重排序
+            # 应用多层重排序
+            # 1. 首先应用语义重排序
             reranked_nodes = self.reranker.postprocess_nodes(
                 retrieved_nodes, query_bundle
             )
             
+            # 2. 应用基于header_path的重排序（针对章节条款查询）
+            header_reranked_nodes = self.header_path_reranker.postprocess_nodes(
+                reranked_nodes, query_bundle
+            )
+            
+            # 3. 应用关键词元数据重排序
+            keyword_reranked_nodes = self.keyword_reranker.postprocess_nodes(
+                header_reranked_nodes, query_bundle
+            )
+            logger.info(keyword_reranked_nodes)
             # 过滤低相似度结果
             filtered_nodes = [
-                node for node in reranked_nodes 
+                node for node in keyword_reranked_nodes 
                 if node.score >= similarity_threshold
             ]
             
@@ -368,15 +689,25 @@ class RAGService:
             # 执行检索
             query_bundle = QueryBundle(query_str=query)
             retrieved_nodes = await fusion_retriever.aretrieve(query_bundle)
-            
-            # 应用重排序
+            # 应用多层重排序
+            # 1. 首先应用语义重排序
             reranked_nodes = self.reranker.postprocess_nodes(
                 retrieved_nodes, query_bundle
             )
             
+            # 2. 应用基于header_path的重排序（针对章节条款查询）
+            header_reranked_nodes = self.header_path_reranker.postprocess_nodes(
+                reranked_nodes, query_bundle
+            )
+            
+            # 3. 应用关键词元数据重排序
+            keyword_reranked_nodes = self.keyword_reranker.postprocess_nodes(
+                header_reranked_nodes, query_bundle
+            )
+            
             # 过滤低相似度结果
             filtered_nodes = [
-                node for node in reranked_nodes 
+                node for node in keyword_reranked_nodes 
                 if node.score >= similarity_threshold
             ]
             
@@ -448,7 +779,8 @@ class RAGService:
         self, 
         index_ids: List[str], 
         session_id: str = None,
-        load_history: bool = True
+        load_history: bool = True,
+        user_id: str = None
     ) -> str:
         """创建对话会话（支持多索引）"""
         try:
@@ -470,6 +802,7 @@ class RAGService:
             db_session = ChatDAO.create_session(
                 session_id=session_id,
                 index_ids=valid_index_ids,
+                user_id=user_id,
                 metadata={
                     "created_at": datetime.utcnow().isoformat(),
                     "source": "rag_service"
@@ -481,6 +814,7 @@ class RAGService:
             
             # 创建会话
             session = ConversationSession(session_id, valid_index_ids)
+            session.user_id = user_id  # 添加用户ID
             
             # 加载历史记录到内存（如果需要）
             if load_history:
@@ -490,10 +824,12 @@ class RAGService:
             
             await self._setup_chat_engine_for_session(session, valid_index_ids)
             self.sessions[session_id] = session
-            logger.info(f"Created chat session: {session_id} with indexes: {valid_index_ids}")
+            logger.info(f"Created chat session: {session_id} for user: {user_id} with indexes: {valid_index_ids}")
             return session_id
             
         except Exception as e:
+            import traceback
+            traceback.print_exc()
             logger.error(f"Error creating chat session: {e}")
             raise
     
@@ -501,45 +837,82 @@ class RAGService:
         """为会话设置聊天引擎"""
         try:
             # 确保所有索引已加载
+            loaded_indices = []
             for index_id in index_ids:
                 if index_id not in self.loaded_indexes:
                     await self.load_index(index_id)
+                if index_id in self.loaded_indexes: # Check again after attempting to load
+                    loaded_indices.append(self.loaded_indexes[index_id])
             
-            # 创建多索引检索器
-            if len(index_ids) == 1:
-                # 单索引情况
-                index = self.loaded_indexes[index_ids[0]]
-                vector_retriever = VectorIndexRetriever(
-                    index=index,
-                    similarity_top_k=settings.RETRIEVAL_TOP_K
-                )
-            else:
-                # 多索引情况 - 创建自定义检索器
-                class MultiIndexRetriever:
-                    def __init__(self, rag_service, index_ids):
-                        self.rag_service = rag_service
-                        self.index_ids = index_ids
-                    
-                    async def aretrieve(self, query_bundle: QueryBundle) -> List[NodeWithScore]:
-                        return await self.rag_service.multi_index_retrieve(
-                            self.index_ids, 
-                            query_bundle.query_str,
-                            top_k=settings.RETRIEVAL_TOP_K
-                        )
-                    
-                    def retrieve(self, query_bundle: QueryBundle) -> List[NodeWithScore]:
-                        # 同步版本，通过异步版本实现
-                        import asyncio
-                        loop = asyncio.get_event_loop()
-                        return loop.run_until_complete(self.aretrieve(query_bundle))
-                
-                vector_retriever = MultiIndexRetriever(self, index_ids)
-            
+            if not loaded_indices:
+                raise ValueError("No valid indices could be loaded for the session.")
 
+            node_postprocessors = [self.reranker, self.header_path_reranker, self.keyword_reranker]
+
+            # 导入必要的模块
+            from llama_index.retrievers.bm25 import BM25Retriever
+            from llama_index.core.retrievers import QueryFusionRetriever
+            
+            # 统一处理单索引和多索引情况，使用混合检索
+            all_retrievers = []
+            
+            # 为每个索引创建检索器
+            for index_obj in loaded_indices:
+                # 获取索引ID
+                current_index_id = next((id for id, idx in self.loaded_indexes.items() if idx == index_obj), None)
+                
+                # 创建向量检索器（带重排序器）
+                vector_retriever = VectorIndexRetriever(
+                    index=index_obj,
+                    similarity_top_k=settings.RETRIEVAL_TOP_K,  # 分配一半给向量检索
+                )
+                all_retrievers.append(vector_retriever)
+                logger.info(f"Created vector retriever for index {current_index_id or 'unknown'}")
+                
+                # 尝试创建BM25检索器
+                try:
+                    if hasattr(index_obj, '_docstore') and len(index_obj._docstore.docs) > 0:
+                        bm25_retriever = BM25Retriever.from_defaults(
+                            docstore=index_obj._docstore,
+                            similarity_top_k=settings.RETRIEVAL_TOP_K  # 分配一半给BM25检索
+                        )
+                        all_retrievers.append(bm25_retriever)
+                        logger.info(f"Created BM25 retriever for index {current_index_id or 'unknown'}")
+                except Exception as e:
+                    logger.warning(f"Failed to create BM25 retriever for index {current_index_id or 'unknown'}: {e}")
+            
+            if not all_retrievers:
+                raise ValueError("No valid retrievers created")
+            
+            # 创建检索器 - 根据检索器数量决定使用单检索器还是融合检索器
+            if len(all_retrievers) == 1:
+                # 只有一个检索器，直接使用
+                retriever = all_retrievers[0]
+                logger.info("Using single retriever with node postprocessors")
+            else:
+                # 多个检索器，使用融合检索器
+                try:
+                    # QueryFusionRetriever不支持node_postprocessors参数
+                    retriever = QueryFusionRetriever(
+                        retrievers=all_retrievers,
+                        similarity_top_k=settings.RETRIEVAL_TOP_K,
+                        num_queries=4,  # 生成4个查询变体
+                        mode="reciprocal_rerank",
+                        use_async=True,
+                        verbose=True
+                    )
+                    logger.info(f"Created QueryFusionRetriever with {len(all_retrievers)} retrievers")
+                except Exception as e:
+                    # 如果融合检索器创建失败，使用第一个检索器作为备选
+                    logger.warning(f"Failed to create QueryFusionRetriever: {e}, falling back to first retriever")
+                    retriever = all_retrievers[0]
+            
+        
             # 创建聊天引擎
             session.chat_engine = CondensePlusContextChatEngine.from_defaults(
-                retriever=vector_retriever,
+                retriever=retriever,
                 memory=session.memory,
+                node_postprocessors=node_postprocessors,
                 llm=self.llm,
                 verbose=True,
                 system_prompt="你是一个有用的AI助手。请基于提供的上下文信息回答用户的问题。如果上下文信息不足以回答问题，请诚实地告知用户，并尽可能提供相关的帮助。请用中文回答。",
@@ -553,18 +926,24 @@ class RAGService:
     async def chat_stream(
         self, 
         session_id: str, 
-        message: str
+        message: str,
+        user_id: Optional[str] = None
     ) -> AsyncGenerator[str, None]:
         """流式对话"""
         try:
             if session_id not in self.sessions:
                 # 尝试从数据库恢复会话
-                db_session = ChatDAO.get_session(session_id)
+                if user_id:
+                    db_session = ChatDAO.get_session_by_user(session_id, user_id)
+                else:
+                    db_session = ChatDAO.get_session(session_id)
+                    
                 if not db_session:
                     raise ValueError(f"Session not found: {session_id}")
                 
                 # 恢复会话到内存
                 session = ConversationSession(session_id, db_session.index_ids)
+                session.user_id = db_session.user_id
                 session.load_history_to_memory()
                 
                 # 重新创建聊天引擎
@@ -582,43 +961,69 @@ class RAGService:
             
             # 收集完整响应
             full_response = ""
+            has_yielded_content = False
+            
             async for token in streaming_response.async_response_gen():
+                if token.strip():  # 只有非空token才计入内容
+                    has_yielded_content = True
                 full_response += token
                 yield token
             
-            # 记录助手响应
-            session.add_message("assistant", full_response, {
-                "source_nodes": [
+            # 检查是否需要fallback处理
+            if not has_yielded_content or not full_response.strip() or full_response.strip().lower() in ["empty response", "none", "null"]:
+                fallback_message = "抱歉，我无法为您提供有效的回答。请尝试重新表述您的问题。"
+                logger.warning(f"Empty or invalid streaming response detected, using fallback message")
+                yield fallback_message
+                full_response = fallback_message
+            
+            source_nodes_data = []
+            if hasattr(streaming_response, 'source_nodes') and streaming_response.source_nodes:
+                source_nodes_data = [
                     {
-                        "content": node.node.text[:200] + "...",
+                        "content": node.node.text,
                         "score": float(node.score),
                         "metadata": node.node.metadata
                     }
                     for node in streaming_response.source_nodes
-                ] if hasattr(streaming_response, 'source_nodes') else []
+                ]
+            
+            # Store source_nodes in session for later retrieval by frontend_service
+            session.last_source_nodes = source_nodes_data
+
+            # 记录助手响应
+            session.add_message("assistant", full_response, {
+                "source_nodes": source_nodes_data
             })
             
             logger.info(f"Completed streaming chat for session {session_id}")
             
         except Exception as e:
-            logger.error(f"Error in streaming chat: {e}")
+            import traceback
+            error_details = traceback.format_exc()
+            logger.error(f"Error in streaming chat: {e}\nTraceback:\n{error_details}")
             yield f"Error: {str(e)}"
     
     async def chat(
         self, 
         session_id: str, 
-        message: str
+        message: str,
+        user_id: Optional[str] = None
     ) -> Dict[str, Any]:
         """非流式对话"""
         try:
             if session_id not in self.sessions:
                 # 尝试从数据库恢复会话
-                db_session = ChatDAO.get_session(session_id)
+                if user_id:
+                    db_session = ChatDAO.get_session_by_user(session_id, user_id)
+                else:
+                    db_session = ChatDAO.get_session(session_id)
+                    
                 if not db_session:
                     raise ValueError(f"Session not found: {session_id}")
                 
                 # 恢复会话到内存
                 session = ConversationSession(session_id, db_session.index_ids)
+                session.user_id = db_session.user_id
                 session.load_history_to_memory()
                 
                 # 重新创建聊天引擎
@@ -659,22 +1064,26 @@ class RAGService:
             
             return {
                 "response": response_text,
-                "source_nodes": source_nodes_info,
                 "session_id": session_id,
-                "message_count": session.message_count
+                "source_nodes": source_nodes_info,
+                 "raw_response_type": str(type(response)) # for debugging
             }
             
         except Exception as e:
             logger.error(f"Error in chat: {e}")
             raise
     
-    def get_session_info(self, session_id: str) -> Optional[Dict[str, Any]]:
+    def get_session_info(self, session_id: str, user_id: Optional[str] = None) -> Optional[Dict[str, Any]]:
         """获取会话信息"""
         # 先从内存中查找
         session = self.sessions.get(session_id)
         
         # 如果内存中没有，从数据库查找
-        db_session = ChatDAO.get_session(session_id)
+        if user_id:
+            db_session = ChatDAO.get_session_by_user(session_id, user_id)
+        else:
+            db_session = ChatDAO.get_session(session_id)
+            
         if not db_session:
             return None
         
@@ -691,10 +1100,14 @@ class RAGService:
             "in_memory": session is not None
         }
     
-    def get_chat_history(self, session_id: str, limit: int = None) -> Optional[List[Dict[str, Any]]]:
+    def get_chat_history(self, session_id: str, user_id: Optional[str] = None, limit: int = None) -> Optional[List[Dict[str, Any]]]:
         """获取聊天历史"""
         # 验证会话存在
-        db_session = ChatDAO.get_session(session_id)
+        if user_id:
+            db_session = ChatDAO.get_session_by_user(session_id, user_id)
+        else:
+            db_session = ChatDAO.get_session(session_id)
+            
         if not db_session:
             return None
         
@@ -706,10 +1119,14 @@ class RAGService:
         
         return [msg.to_dict() for msg in messages]
     
-    def export_chat_history(self, session_id: str, export_path: str = None) -> Optional[str]:
+    def export_chat_history(self, session_id: str, user_id: Optional[str] = None, export_path: str = None) -> Optional[str]:
         """导出聊天历史到文件"""
         # 验证会话存在
-        db_session = ChatDAO.get_session(session_id)
+        if user_id:
+            db_session = ChatDAO.get_session_by_user(session_id, user_id)
+        else:
+            db_session = ChatDAO.get_session(session_id)
+            
         if not db_session:
             return None
         

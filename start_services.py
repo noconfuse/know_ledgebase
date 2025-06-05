@@ -64,31 +64,31 @@ class ServiceManager:
     def start_all_services(self):
         """启动所有服务"""
         try:
-            # 启动文档解析服务
-            doc_service = self.start_service(
-                "Document Service",
-                "apps.document_service",
+            # 启动后台服务（文档解析）
+            backend_service = self.start_service(
+                "Backend Service",
+                "apps.backend_service",
                 "0.0.0.0",
                 8001
             )
             
-            if not doc_service:
-                logger.error("Failed to start Document Service")
+            if not backend_service:
+                logger.error("Failed to start Backend Service")
                 return False
             
             # 等待一下再启动下一个服务
             time.sleep(2)
             
-            # 启动RAG检索服务
-            rag_service = self.start_service(
-                "RAG Service",
-                "apps.rag_service_app",
+            # 启动前台服务（RAG检索）
+            frontend_service = self.start_service(
+                "Frontend Service",
+                "apps.frontend_service",
                 "0.0.0.0",
                 8002
             )
             
-            if not rag_service:
-                logger.error("Failed to start RAG Service")
+            if not frontend_service:
+                logger.error("Failed to start Frontend Service")
                 self.stop_all_services()
                 return False
             
@@ -119,8 +119,8 @@ class ServiceManager:
             print()
         
         print("💡 使用说明:")
-        print("   - 文档解析服务 (端口 8001): 上传和解析文档")
-        print("   - RAG检索服务 (端口 8002): 向量检索和对话")
+        print("   - 后台服务 (端口 8001): 文档解析和向量数据库构建")
+        print("   - 前台服务 (端口 8002): RAG检索和对话接口")
         print("   - 按 Ctrl+C 停止所有服务")
         print("="*60 + "\n")
     

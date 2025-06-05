@@ -1,0 +1,36 @@
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+"""
+索引信息的数据库模型
+"""
+
+import uuid
+from datetime import datetime
+from typing import Optional, Dict, Any
+from sqlalchemy import Column, String, DateTime, Text, UUID
+from sqlalchemy.ext.declarative import declarative_base
+
+Base = declarative_base()
+
+class IndexInfo(Base):
+    """索引信息模型"""
+    __tablename__ = 'indexes'
+    
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    index_id = Column(String(255), unique=True, nullable=False, index=True)
+    index_description = Column(Text, nullable=True)  # 索引描述
+    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
+    
+    def __repr__(self):
+        return f"<IndexInfo(index_id='{self.index_id}', created_at='{self.created_at}')>"
+    
+    def to_dict(self) -> Dict[str, Any]:
+        """转换为字典"""
+        return {
+            "id": str(self.id),
+            "index_id": self.index_id,
+            "index_description": self.index_description,
+            "created_at": self.created_at.isoformat() if self.created_at else None,
+            "updated_at": self.updated_at.isoformat() if self.updated_at else None
+        }
