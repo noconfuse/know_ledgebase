@@ -496,7 +496,6 @@ async def list_sessions(
                 session_info["is_active"] = False
                 
             sessions.append(session_info)
-        print(current_user["id"],'userid')
         return success_response(
             data={
                 "sessions": sessions,
@@ -507,8 +506,6 @@ async def list_sessions(
         )
         
     except Exception as e:
-        import traceback
-        traceback.print_exc()
         logger.error(f"Error listing sessions: {e}")
         return error_response(
             message="获取会话列表时发生错误",
@@ -552,8 +549,6 @@ async def delete_session(
         )
             
     except Exception as e:
-        import traceback
-        traceback.print_exc()
         logger.error(f"Error deleting session: {e}")
         return error_response(
             message="删除会话时发生错误",

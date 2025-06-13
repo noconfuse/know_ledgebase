@@ -109,6 +109,85 @@ class PostgresVectorStoreBuilder:
             logger.error(f"创建向量索引失败: {str(e)}")
             raise
     
+    def update_index_with_nodes(self, nodes: List[BaseNode], embed_model) -> VectorStoreIndex:
+        """
+        更新现有向量索引或创建新索引
+        
+        Args:
+            nodes: 文档节点列表
+            embed_model: 嵌入模型
+            
+        Returns:
+            VectorStoreIndex实例
+        """
+        try:
+            # 检查表是否存在
+            stats = self.get_stats()
+            table_exists = stats.get('table_exists', False)
+            
+            if table_exists:
+                logger.info(f"表 {self.table_name} 已存在，清空并更新数据")
+                # 清空现有数据
+                self._clear_table_data()
+            else:
+                logger.info(f"表 {self.table_name} 不存在，将创建新表")
+            
+            # 创建向量存储
+            vector_store = self.create_vector_store()
+            
+            # 创建存储上下文
+            storage_context = StorageContext.from_defaults(vector_store=vector_store)
+            
+            # 创建向量索引
+            index = VectorStoreIndex(
+                nodes=nodes,
+                storage_context=storage_context,
+                embed_model=embed_model,
+                show_progress=True
+            )
+            
+            logger.info(f"成功更新向量索引，包含 {len(nodes)} 个节点")
+            return index
+            
+        except Exception as e:
+            logger.error(f"更新向量索引失败: {str(e)}")
+            raise
+    
+    def _clear_table_data(self) -> bool:
+        """
+        清空表中的数据
+        
+        Returns:
+            是否成功清空
+        """
+        try:
+            import psycopg2
+            
+            # 连接数据库
+            conn = psycopg2.connect(
+                host=self.host,
+                port=self.port,
+                database=self.database,
+                user=self.user,
+                password=self.password
+            )
+            
+            cursor = conn.cursor()
+            
+            # 清空表数据
+            cursor.execute(f"TRUNCATE TABLE {self.table_name};")
+            conn.commit()
+            
+            cursor.close()
+            conn.close()
+            
+            logger.info(f"成功清空表数据: {self.table_name}")
+            return True
+            
+        except Exception as e:
+            logger.error(f"清空表数据失败: {str(e)}")
+            return False
+    
     def load_index(self, embed_model) -> Optional[VectorStoreIndex]:
         """
         加载现有的向量索引
@@ -161,7 +240,7 @@ class PostgresVectorStoreBuilder:
             cursor = conn.cursor()
             
             # 删除表
-            cursor.execute(f"DROP TABLE IF EXISTS {self.table_name} CASCADE;")
+            cursor.execute(f"DROP TABLE IF EXISTS data_{self.table_name} CASCADE;")
             conn.commit()
             
             cursor.close()

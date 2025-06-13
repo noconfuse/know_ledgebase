@@ -13,16 +13,28 @@ from contextlib import asynccontextmanager
 
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
+
+from models.parse_task import TaskStatus
 from config import settings
 from common.response import success_response, error_response, ErrorCodes
 from common.exception_handler import setup_exception_handlers
 from utils.logging_config import setup_logging, get_logger
 from services.vector_store_builder import vector_store_builder
 from services.document_parser import document_parser
+from dao.index_dao import IndexDAO
+from dao.chat_dao import ChatDAO
+from dao.task_dao import TaskDAO
+from common.postgres_vector_store import PostgresVectorStoreBuilder
+from models.database import SessionLocal
 
 # 初始化日志系统
 setup_logging()
 logger = get_logger(__name__)
+
+# 初始化DAO
+index_dao = IndexDAO()
+chat_dao = ChatDAO()
+task_dao = TaskDAO()
 
 # Pydantic模型
 class ParseConfig(BaseModel):
@@ -32,16 +44,24 @@ class ParseConfig(BaseModel):
     ocr_languages: Optional[List[str]] = Field(default=["ch_sim", "en"], description="OCR语言")
     extract_tables: Optional[bool] = Field(default=True, description="是否提取表格")
     extract_images: Optional[bool] = Field(default=True, description="是否提取图片信息")
-    save_to_file: Optional[bool] = Field(default=False, description="是否保存结果到文件")
+    # save_to_file参数已移除，默认都保存到文件
     max_workers: Optional[int] = Field(default=None, description="MinerU解析器的并发数量（仅对MinerU有效）")
 
 class VectorStoreConfig(BaseModel):
     """向量数据库配置"""
-    extract_keywords: Optional[bool] = Field(default=True, description="是否提取关键词")
-    extract_summary: Optional[bool] = Field(default=True, description="是否提取摘要")
-    generate_qa: Optional[bool] = Field(default=True, description="是否生成问答对")
+    # 基础配置
     chunk_size: Optional[int] = Field(default=512, description="文本块大小")
     chunk_overlap: Optional[int] = Field(default=50, description="文本块重叠")
+    
+    # 智能元数据提取器配置
+    extract_mode: Optional[str] = Field(default="enhanced", description="提取模式：basic（关键词、问答对、title）或enhanced（包含摘要等更多元数据）")
+    min_chunk_size_for_summary: Optional[int] = Field(default=500, description="提取摘要的最小chunk大小（仅enhanced模式）")
+    min_chunk_size_for_qa: Optional[int] = Field(default=300, description="提取问答对的最小chunk大小")
+    max_keywords: Optional[int] = Field(default=5, description="最大关键词数量")
+    num_questions: Optional[int] = Field(default=3, description="问答对数量")
+    
+    # 索引描述配置
+
 
 class TaskResponse(BaseModel):
     """任务响应"""
@@ -98,7 +118,7 @@ async def lifespan(app: FastAPI):
 # 创建FastAPI应用
 app = FastAPI(
     title="文档解析服务",
-    description="基于Docling的文档解析服务，支持OCR和GPU加速",
+    description="文档解析服务，支持OCR和GPU加速",
     version="1.0.0",
     lifespan=lifespan
 )
@@ -156,7 +176,7 @@ async def health_check() -> JSONResponse:
 async def parse_uploaded_file(
     file: UploadFile = File(...),
     config: Optional[str] = Form(None),
-    save_to_file: bool = Form(False),
+    # save_to_file参数已移除，默认都保存到文件
     parser_type: Optional[str] = Form(None, description="解析器类型: 'docling' 或 'mineru'")
 ):
     """解析上传的文件"""
@@ -190,7 +210,7 @@ async def parse_uploaded_file(
             except json.JSONDecodeError:
                 raise HTTPException(status_code=400, detail="Invalid config JSON")
         
-        parse_config["save_to_file"] = save_to_file
+        # save_to_file参数已移除，默认都保存到文件
         
         # 启动解析任务
         task_id = await document_parser.parse_document(
@@ -277,25 +297,40 @@ async def get_all_parse_tasks():
 
 @app.post("/vector-store/build", response_model=TaskResponse)
 async def build_vector_store(
-    directory_path: str,
+    parse_task_id: str,
     config: Optional[VectorStoreConfig] = None
 ):
-    """构建向量数据库"""
+    """从解析任务构建向量数据库"""
     try:
-        # 验证目录路径
-        if not Path(directory_path).exists():
-            raise HTTPException(status_code=404, detail="Directory not found")
+        # 验证解析任务是否存在
+        parse_task = document_parser.get_task_status(parse_task_id)
+        if not parse_task:
+            raise HTTPException(status_code=404, detail="Parse task not found")
         
-        if not Path(directory_path).is_dir():
-            raise HTTPException(status_code=400, detail="Path is not a directory")
+        if parse_task.get('status') != TaskStatus.COMPLETED:
+            raise HTTPException(status_code=400, detail="Parse task not completed")
         
         # 转换配置
         build_config = config.dict() if config else {}
         
+        # 确保配置包含所有必要的参数
+        default_config = {
+            "chunk_size": 512,
+            "chunk_overlap": 50,
+            "extract_mode": "enhanced",
+            "min_chunk_size_for_summary": 500,
+            "min_chunk_size_for_qa": 300,
+            "max_keywords": 5,
+            "num_questions": 3
+        }
+        
+        # 合并默认配置和用户配置
+        final_config = {**default_config, **build_config}
+        
         # 启动构建任务
         task_id = await vector_store_builder.build_vector_store(
-            directory_path,
-            build_config
+            parse_task_id,
+            final_config
         )
         
         return TaskResponse(
@@ -324,6 +359,56 @@ async def get_vector_store_status(task_id: str):
         raise
     except Exception as e:
         logger.error(f"Error in get_vector_store_status: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/tasks/parse")
+async def list_parse_tasks(limit: int = 100, offset: int = 0, status: str = None):
+    """列出解析任务"""
+    try:
+        tasks = task_dao.list_parse_tasks(limit=limit, offset=offset, status=status)
+        return {
+            "tasks": [task.to_dict() for task in tasks],
+            "total": len(tasks)
+        }
+    except Exception as e:
+        logger.error(f"Error listing parse tasks: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/tasks/vector-store")
+async def list_vector_store_tasks(limit: int = 100, offset: int = 0, status: str = None, parse_task_id: str = None):
+    """列出向量化任务"""
+    try:
+        tasks = task_dao.list_vector_store_tasks(limit=limit, offset=offset, status=status, parse_task_id=parse_task_id)
+        return {
+            "tasks": [task.to_dict() for task in tasks],
+            "total": len(tasks)
+        }
+    except Exception as e:
+        logger.error(f"Error listing vector store tasks: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/tasks/parse/{task_id}")
+async def get_parse_task(task_id: str):
+    """获取解析任务详情"""
+    try:
+        task = task_dao.get_parse_task(task_id)
+        if not task:
+            raise HTTPException(status_code=404, detail="Parse task not found")
+        return task.to_dict()
+    except Exception as e:
+        logger.error(f"Error getting parse task: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/tasks/vector-store/{task_id}")
+async def get_vector_store_task(task_id: str):
+    """获取向量化任务详情"""
+    try:
+        task = task_dao.get_vector_store_task(task_id)
+        if not task:
+            raise HTTPException(status_code=404, detail="Vector store task not found")
+        return task.to_dict()
+    except Exception as e:
+        logger.error(f"Error getting vector store task: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 @app.get("/vector-store/tasks")
@@ -453,6 +538,112 @@ async def get_config():
         "enable_file_logging": settings.ENABLE_FILE_LOGGING,
         "enable_docling_logging": settings.ENABLE_DOCLING_LOGGING
     }
+
+@app.delete("/vector-store/index/{index_id}")
+async def delete_vector_index(index_id: str):
+    """删除向量索引
+    
+    删除指定的向量索引，包括：
+    1. 从indexes表中删除索引记录
+    2. 删除PGVector中对应的数据表
+    3. 从内存中卸载索引
+    
+    Args:
+        index_id: 索引ID
+        
+    Returns:
+        删除结果
+    """
+    try:
+        # 创建数据库会话
+        db = SessionLocal()
+        
+        try:
+            # 1. 检查索引是否存在
+            index_info = IndexDAO.get_index_by_id(db, index_id)
+            if not index_info:
+                return error_response(
+                    message=f"索引 {index_id} 不存在",
+                    error_code=ErrorCodes.INDEX_NOT_FOUND,
+                    status_code=404
+                )
+            
+            # 2. 从内存中卸载索引（如果已加载）
+            try:
+                from services.rag_service import RAGService
+                rag_service = RAGService()
+                rag_service.unload_index(index_id)
+                logger.info(f"Unloaded index from memory: {index_id}")
+            except Exception as e:
+                logger.warning(f"Failed to unload index from memory: {e}")
+            
+            # 3. 删除PGVector中的数据表（如果使用PostgreSQL向量存储）
+            if settings.VECTOR_STORE_TYPE == "postgres":
+                try:
+                    import psycopg2
+                    
+                    # 构建表名
+                    table_name = f"{settings.POSTGRES_TABLE_NAME}_{index_id.replace('-', '_')}"
+                    
+                    # 直接连接数据库删除表，避免创建新表
+                    conn = psycopg2.connect(
+                        host=settings.POSTGRES_HOST,
+                        port=settings.POSTGRES_PORT,
+                        database=settings.POSTGRES_DATABASE,
+                        user=settings.POSTGRES_USER,
+                        password=settings.POSTGRES_PASSWORD
+                    )
+                    
+                    cursor = conn.cursor()
+                    
+                    # 删除表（包括data_前缀的表）
+                    cursor.execute(f"DROP TABLE IF EXISTS data_{table_name} CASCADE;")
+                    conn.commit()
+                    
+                    cursor.close()
+                    conn.close()
+                    
+                    logger.info(f"Deleted PostgreSQL vector table: data_{table_name}")
+                        
+                except Exception as e:
+                    logger.error(f"Error deleting PostgreSQL vector table: {e}")
+                    # 继续执行，不因为向量表删除失败而中断整个流程
+            
+            # 4. 删除FAISS索引文件（如果使用FAISS）
+            elif settings.VECTOR_STORE_TYPE == "faiss":
+                try:
+                    index_path = Path(settings.INDEX_STORE_PATH) / index_id
+                    if index_path.exists():
+                        shutil.rmtree(index_path)
+                        logger.info(f"Deleted FAISS index directory: {index_path}")
+                except Exception as e:
+                    logger.error(f"Error deleting FAISS index directory: {e}")
+            
+            # 5. 从indexes表中删除索引记录
+            if IndexDAO.delete_index(db, index_id):
+                logger.info(f"Deleted index record from database: {index_id}")
+                
+                return success_response(
+                    data={"index_id": index_id},
+                    message=f"成功删除向量索引 {index_id}"
+                )
+            else:
+                return error_response(
+                    message=f"删除索引记录失败: {index_id}",
+                    error_code=ErrorCodes.INTERNAL_ERROR,
+                    status_code=500
+                )
+                
+        finally:
+            db.close()
+            
+    except Exception as e:
+        logger.error(f"Error in delete_vector_index: {e}")
+        return error_response(
+            message=f"删除向量索引时发生错误: {str(e)}",
+            error_code=ErrorCodes.INTERNAL_ERROR,
+            status_code=500
+        )
 
 if __name__ == "__main__":
     import uvicorn

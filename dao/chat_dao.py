@@ -264,7 +264,12 @@ class ChatDAO:
         try:
             db_gen = get_db()
             db = next(db_gen)
-            query = db.query(ChatSession).filter(ChatSession.is_active == True)
+            query = db.query(ChatSession).filter(
+                and_(
+                    ChatSession.is_active == True,
+                    ChatSession.soft_deleted_at.is_(None)
+                )
+            )
             
             # 如果指定了用户ID，则只获取该用户的会话
             if user_id:
@@ -458,45 +463,67 @@ class ChatDAO:
                     pass
     
     @staticmethod
-    def cleanup_expired_sessions(expire_hours: int = 24) -> int:
-        """清理过期会话"""
+    def cleanup_expired_sessions() -> dict:
+        """清理过期会话：30天软删除，180天硬删除"""
+        from ..config import settings
+        from datetime import timedelta
+        
         db_gen = None
         db = None
+        result = {"soft_deleted": 0, "hard_deleted": 0}
+        
         try:
-            from datetime import timedelta
-            
-            cutoff_time = datetime.utcnow() - timedelta(hours=expire_hours)
+            current_time = datetime.utcnow()
+            soft_delete_cutoff = current_time - timedelta(days=settings.SESSION_SOFT_DELETE_DAYS)
+            hard_delete_cutoff = current_time - timedelta(days=settings.SESSION_HARD_DELETE_DAYS)
             
             db_gen = get_db()
             db = next(db_gen)
-            # 获取过期会话
-            expired_sessions = db.query(ChatSession).filter(
+            
+            # 1. 软删除：30天未活动且未被软删除的会话
+            sessions_to_soft_delete = db.query(ChatSession).filter(
                 and_(
-                    ChatSession.last_activity < cutoff_time,
-                    ChatSession.is_active == True
+                    ChatSession.last_activity < soft_delete_cutoff,
+                    ChatSession.soft_deleted_at.is_(None)
                 )
             ).all()
             
-            count = 0
-            for session in expired_sessions:
+            for session in sessions_to_soft_delete:
+                session.soft_deleted_at = current_time
+                result["soft_deleted"] += 1
+            
+            # 2. 硬删除：180天前软删除的会话
+            sessions_to_hard_delete = db.query(ChatSession).filter(
+                and_(
+                    ChatSession.soft_deleted_at < hard_delete_cutoff,
+                    ChatSession.soft_deleted_at.isnot(None)
+                )
+            ).all()
+            
+            for session in sessions_to_hard_delete:
                 # 删除会话消息
                 db.query(ChatMessage).filter(
                     ChatMessage.session_id == session.session_id
                 ).delete()
                 
-                # 停用会话
-                session.is_active = False
-                count += 1
+                # 删除会话
+                db.delete(session)
+                result["hard_deleted"] += 1
             
             db.commit()
-            logger.info(f"Cleaned up {count} expired sessions")
-            return count
+            
+            if result["soft_deleted"] > 0:
+                logger.info(f"Soft deleted {result['soft_deleted']} expired sessions")
+            if result["hard_deleted"] > 0:
+                logger.info(f"Hard deleted {result['hard_deleted']} sessions")
+                
+            return result
                 
         except Exception as e:
             if db:
                 db.rollback()
             logger.error(f"Failed to cleanup expired sessions: {e}")
-            return 0
+            return result
         finally:
             if db_gen:
                 try:

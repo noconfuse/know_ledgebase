@@ -189,17 +189,18 @@ class DocumentPostProcessor:
     def _save_processed_files(self, content_list: List[Dict[str, Any]], markdown: str, output_dir: str) -> Dict[str, str]:
         """保存处理后的文件，覆盖原始解析结果"""
         try:
-            # 原始文件路径
-            content_path = os.path.join(output_dir, "content_list.json")
-            md_path = os.path.join(output_dir, "content.md")
+            # 尝试从现有的content_list.json文件中获取原始文件名
+            base_name = self._get_base_name_from_directory(output_dir)
+            md_path = os.path.join(output_dir, f"{base_name}.md")
+            content_path = os.path.join(output_dir, f"{base_name}_content_list.json")
             
             # 备份原始文件
             if os.path.exists(content_path):
-                backup_content_path = os.path.join(output_dir, "content_list.bak.json")
+                backup_content_path = os.path.join(output_dir, f"{base_name}_content_list.bak.json")
                 os.rename(content_path, backup_content_path)
                 
             if os.path.exists(md_path):
-                backup_md_path = os.path.join(output_dir, "content.bak.md")
+                backup_md_path = os.path.join(output_dir, f"{base_name}.bak.md")
                 os.rename(md_path, backup_md_path)
             
             # 保存新的内容列表文件
@@ -219,3 +220,20 @@ class DocumentPostProcessor:
         except Exception as e:
             logger.error(f"保存处理后的文件失败: {output_dir}, 错误: {e}")
             return {}
+    
+    def _get_base_name_from_directory(self, output_dir: str) -> str:
+        """从目录中获取原始文件名（去掉扩展名）"""
+        try:
+            # 查找现有的content_list.json文件
+            for file in os.listdir(output_dir):
+                if file.endswith('_content_list.json'):
+                    # 提取文件名前缀作为基础名
+                    base_name = file.replace('_content_list.json', '')
+                    return base_name
+            
+            # 如果没有找到content_list.json文件，使用目录名作为后备方案
+            logger.warning(f"未找到content_list.json文件，使用目录名作为基础名: {output_dir}")
+            return Path(output_dir).name
+        except Exception as e:
+            logger.error(f"获取基础文件名失败: {output_dir}, 错误: {e}")
+            return Path(output_dir).name

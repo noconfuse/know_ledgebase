@@ -15,6 +15,7 @@ from config import settings
 from models.chat_models import Base as ChatBase
 from models.user_models import Base as UserBase
 from models.index_models import Base as IndexBase
+from models.task_models import Base as TaskBase
 from sqlalchemy.ext.declarative import declarative_base
 
 # 合并所有模型的Base
@@ -24,6 +25,7 @@ Base = declarative_base()
 from models.chat_models import ChatSession, ChatMessage
 from models.user_models import User, UserSession
 from models.index_models import IndexInfo
+from models.task_models import ParseTask, VectorStoreTask
 
 # 将所有表添加到统一的Base中
 for table in ChatBase.metadata.tables.values():
@@ -33,6 +35,9 @@ for table in UserBase.metadata.tables.values():
     table.tometadata(Base.metadata)
     
 for table in IndexBase.metadata.tables.values():
+    table.tometadata(Base.metadata)
+    
+for table in TaskBase.metadata.tables.values():
     table.tometadata(Base.metadata)
 
 logger = logging.getLogger(__name__)

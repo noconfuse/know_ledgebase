@@ -10,6 +10,7 @@ from concurrent.futures import ThreadPoolExecutor
 import json
 import traceback
 import os
+import mimetypes
 from datetime import datetime
 
 from docling.document_converter import DocumentConverter, PdfFormatOption
@@ -21,121 +22,14 @@ from docling.backend.docling_parse_backend import DoclingParseDocumentBackend
 from config import settings
 from utils.logging_config import setup_logging, log_progress, get_logger
 from services.mineru_parser import MinerUDocumentParser
+from dao.task_dao import TaskDAO
 
 # 初始化日志系统
 setup_logging()
 logger = get_logger(__name__)
 
-class TaskStatus:
-    """任务状态枚举"""
-    PENDING = "pending"
-    RUNNING = "running"
-    COMPLETED = "completed"
-    FAILED = "failed"
-
-class ParseTask:
-    """解析任务"""
-    def __init__(self, task_id: str, file_path: str, config: Dict[str, Any]):
-        self.task_id = task_id
-        self.file_path = file_path
-        self.config = config
-        self.status = TaskStatus.PENDING
-        self.progress = 0
-        self.current_stage = "初始化"
-        self.stage_details = {}
-        self.result = None
-        self.error = None
-        self.created_at = time.time()
-        self.started_at = None
-        self.completed_at = None
-        self.processing_logs = []
-        self.file_info = self._get_file_info()
-        
-        # 记录任务创建日志
-        logger.info(f"创建解析任务 {task_id}，文件: {file_path}")
-        self._log_progress(0, "任务创建", "解析任务已创建")
-    
-    def _get_file_info(self) -> Dict[str, Any]:
-        """获取文件信息"""
-        try:
-            file_path = Path(self.file_path)
-            stat = file_path.stat()
-            return {
-                "name": file_path.name,
-                "size": stat.st_size,
-                "extension": file_path.suffix,
-                "created_time": stat.st_ctime,
-                "modified_time": stat.st_mtime
-            }
-        except Exception as e:
-            logger.warning(f"获取文件信息失败: {e}")
-            return {}
-    
-    def update_progress(self, progress: int, stage: str, message: str, details: Dict[str, Any] = None):
-        """更新任务进度"""
-        self.progress = progress
-        self.current_stage = stage
-        if details:
-            self.stage_details.update(details)
-        
-        # 添加处理日志
-        log_entry = {
-            "timestamp": datetime.now().isoformat(),
-            "progress": progress,
-            "stage": stage,
-            "message": message,
-            "details": details or {}
-        }
-        self.processing_logs.append(log_entry)
-        
-        # 记录进度日志
-        self._log_progress(progress, stage, message, details)
-        logger.debug(f"任务 {self.task_id} 进度更新: {progress}% - {stage} - {message}")
-    
-    def _log_progress(self, progress: int, stage: str, message: str, details: Dict[str, Any] = None):
-        """记录进度到专用日志"""
-        log_progress(
-            task_id=self.task_id,
-            progress=progress,
-            stage=stage,
-            message=message,
-            details={
-                "file_path": self.file_path,
-                "file_info": self.file_info,
-                **(details or {})
-            }
-        )
-    
-    def add_processing_log(self, level: str, message: str, details: Dict[str, Any] = None):
-        """添加处理日志"""
-        log_entry = {
-            "timestamp": datetime.now().isoformat(),
-            "level": level,
-            "message": message,
-            "details": details or {}
-        }
-        self.processing_logs.append(log_entry)
-        
-        # 根据级别记录到相应的日志器
-        log_method = getattr(logger, level.lower(), logger.info)
-        log_method(f"任务 {self.task_id}: {message}")
-
-    def to_dict(self) -> Dict[str, Any]:
-        return {
-            "task_id": self.task_id,
-            "file_path": self.file_path,
-            "status": self.status,
-            "progress": self.progress,
-            "current_stage": self.current_stage,
-            "stage_details": self.stage_details,
-            "result": self.result,
-            "error": self.error,
-            "created_at": self.created_at,
-            "started_at": self.started_at,
-            "completed_at": self.completed_at,
-            "file_info": self.file_info,
-            "processing_logs": self.processing_logs[-10:] if len(self.processing_logs) > 10 else self.processing_logs  # 只返回最近10条日志
-        }
+from models.task_models import ParseTask
+from models.parse_task import TaskStatus
 
 class DocumentParser:
     """文档解析器 - 基于Docling的单例实现"""
@@ -157,6 +51,9 @@ class DocumentParser:
             
             # 初始化MinerU解析器
             self.mineru_parser = MinerUDocumentParser()
+            
+            # 初始化任务DAO
+            self.task_dao = TaskDAO()
             
             # 使用默认配置初始化转换器
             self._setup_converter()
@@ -275,8 +172,25 @@ class DocumentParser:
         task_config = config or {}
         task_config["parser_type"] = selected_parser
         
-        task = ParseTask(task_id, file_path, task_config)
+        # 获取文件信息
+        file_path_obj = Path(file_path)
+        file_stat = file_path_obj.stat()
+        
+        # 创建数据库任务对象
+        task = ParseTask(
+            task_id=task_id,
+            file_path=file_path,
+            file_name=file_path_obj.name,
+            file_size=file_stat.st_size,
+            file_extension=file_path_obj.suffix,
+            parser_type="docling",
+            config=task_config,
+            status=TaskStatus.PENDING
+        )
         self.tasks[task_id] = task
+        
+        # 保存任务到数据库
+        self._save_task_to_db(task)
         
         # 异步执行解析
         asyncio.create_task(self._execute_parse_task(task))
@@ -288,21 +202,38 @@ class DocumentParser:
         """执行解析任务"""
         try:
             task.status = TaskStatus.RUNNING
-            task.started_at = time.time()
-            task.update_progress(5, "任务启动", "开始执行解析任务")
+            task.started_at = datetime.utcnow()
+            task.progress = 5
+            task.current_stage = "任务启动"
+            
+            # 更新数据库中的任务状态
+            self._update_task_in_db(task)
             
             logger.info(f"开始执行解析任务 {task.task_id}，文件: {task.file_path}")
-            task.add_processing_log("info", "任务开始执行", {
-                "file_size": task.file_info.get("size", 0),
-                "file_extension": task.file_info.get("extension", "")
+            
+            # 添加处理日志
+            if not task.processing_logs:
+                task.processing_logs = []
+            task.processing_logs.append({
+                "timestamp": datetime.now().isoformat(),
+                "level": "info",
+                "message": "任务开始执行",
+                "details": {
+                    "file_size": task.file_size,
+                    "file_extension": task.file_extension
+                }
             })
             
             # 文件预检查
-            task.update_progress(10, "文件检查", "验证文件有效性")
+            task.progress = 10
+            task.current_stage = "文件检查"
+            self._update_task_in_db(task)
             await self._validate_file(task)
             
             # 在线程池中执行解析
-            task.update_progress(15, "准备解析", "提交到解析线程池")
+            task.progress = 15
+            task.current_stage = "准备解析"
+            self._update_task_in_db(task)
             loop = asyncio.get_event_loop()
             
             logger.debug(f"任务 {task.task_id} 提交到线程池执行")
@@ -312,124 +243,125 @@ class DocumentParser:
                 task
             )
             
-            task.update_progress(85, "解析完成", "文档解析成功完成")
+            task.progress = 85
+            task.current_stage = "解析完成"
+            self._update_task_in_db(task)
             
-            # 保存结果到文件（如果需要）
-            if task.config.get("save_to_file", False):
-                task.update_progress(90, "保存结果", "保存解析结果到文件")
-                output_path = await self._save_result_to_file(task.task_id, result)
-                task.add_processing_log("info", "结果已保存到文件", {"output_path": output_path})
-                
-                # 保存完成后，移除详细信息，只保留精简的元数据
-                simplified_result = {
-                    "document_id": result["document_id"],
-                    "title": result["title"],
-                    "file_type": result["file_type"],
-                    "page_count": result["page_count"],
-                    "content_length": result["content_length"],
-                    "parsed_at": result["parsed_at"],
-                    "has_tables": result["has_tables"],
-                    "has_images": result["has_images"],
-                    "output_file": output_path
-                }
-                result = simplified_result
+            # 默认保存结果到文件
+            task.progress = 90
+            task.current_stage = "保存结果"
+            self._update_task_in_db(task)
+            output_path = await self._save_result_to_file(task.task_id, result)
+            
+            # 保存完成后，添加输出文件路径到结果中
+            result["output_file"] = output_path
             
             # 计算处理时间
-            processing_time = time.time() - task.started_at
+            processing_time = time.time() - task.started_at.timestamp() if task.started_at else 0
             
             task.result = result
             task.status = TaskStatus.COMPLETED
-            task.update_progress(100, "任务完成", "解析任务成功完成", {
+            task.progress = 100
+            task.current_stage = "任务完成"
+            if not task.stage_details:
+                task.stage_details = {}
+            task.stage_details.update({
                 "processing_time": processing_time,
                 "content_length": len(result.get("content", "")),
                 "tables_count": len(result.get("tables", [])),
                 "images_count": len(result.get("images", []))
             })
-            task.completed_at = time.time()
+            self._update_task_in_db(task)
+            task.completed_at = datetime.utcnow()
+            
+            # 更新数据库中的任务状态
+            self._update_task_in_db(task)
             
             logger.info(f"解析任务 {task.task_id} 成功完成，耗时: {processing_time:.2f}秒")
-            task.add_processing_log("info", "任务执行完成", {
-                "processing_time": processing_time,
-                "final_status": "success"
-            })
+            
             
         except Exception as e:
             task.status = TaskStatus.FAILED
             task.error = str(e)
-            task.completed_at = time.time()
-            processing_time = task.completed_at - (task.started_at or task.created_at)
+            task.completed_at = datetime.utcnow()
+            processing_time = time.time() - (task.started_at.timestamp() if task.started_at else task.created_at.timestamp())
             
-            task.update_progress(task.progress, "任务失败", f"解析失败: {str(e)}", {
+            task.current_stage = "任务失败"
+            task.error = f"解析失败: {str(e)}"
+            if not task.stage_details:
+                task.stage_details = {}
+            task.stage_details.update({
                 "error_type": type(e).__name__,
                 "processing_time": processing_time
             })
+            self._update_task_in_db(task)
+            
+            # 更新数据库中的任务状态
+            self._update_task_in_db(task)
             
             logger.error(f"解析任务 {task.task_id} 失败: {e}")
             logger.error(f"错误详情: {traceback.format_exc()}")
-            task.add_processing_log("error", "任务执行失败", {
-                "error_message": str(e),
-                "error_type": type(e).__name__,
-                "traceback": traceback.format_exc()
-            })
+            
     
     def _parse_file_sync(self, task: ParseTask) -> Dict[str, Any]:
         """同步解析文件"""
         try:
             # 根据任务配置重新设置转换器
-            task.update_progress(15, "配置转换器", "根据任务配置设置文档转换器")
+            task.progress = 15
+            task.current_stage = "配置转换器"
+            self._update_task_in_db(task)
             if task.config:
                 logger.info(f"使用任务配置重新设置转换器: {task.config}")
                 self._setup_converter(task.config)
-                task.add_processing_log("info", "转换器配置更新", {
-                    "task_config": task.config
-                })
+                
             
             # 开始文档转换
-            task.update_progress(20, "文档加载", "开始加载文档文件")
+            task.progress = 20
+            task.current_stage = "文档加载"
+            self._update_task_in_db(task)
             logger.info(f"开始转换文档: {task.file_path}")
             
             # 获取当前配置用于日志记录
             current_ocr_enabled = task.config.get("ocr_enabled", settings.OCR_ENABLED) if task.config else settings.OCR_ENABLED
             current_ocr_languages = task.config.get("ocr_languages", settings.OCR_LANGUAGES) if task.config else settings.OCR_LANGUAGES
             
-            task.add_processing_log("info", "开始Docling文档转换", {
-                "converter_config": {
-                    "ocr_enabled": current_ocr_enabled,
-                    "ocr_languages": current_ocr_languages,
-                    "gpu_enabled": settings.USE_GPU
-                }
-            })
+      
             
             # 执行文档转换
-            task.update_progress(30, "文档转换", "执行Docling文档转换")
+            task.progress = 30
+            task.current_stage = "文档转换"
+            self._update_task_in_db(task)
             start_time = time.time()
             
             logger.debug(f"调用Docling转换器处理文件: {task.file_path}")
             result = self.converter.convert(task.file_path)
             
             conversion_time = time.time() - start_time
-            task.update_progress(60, "转换完成", "Docling转换完成", {
+            task.progress = 60
+            task.current_stage = "转换完成"
+            if not task.stage_details:
+                task.stage_details = {}
+            task.stage_details.update({
                 "conversion_time": conversion_time
             })
+            self._update_task_in_db(task)
             
             logger.info(f"Docling转换完成，耗时: {conversion_time:.2f}秒")
-            task.add_processing_log("info", "Docling转换完成", {
-                "conversion_time": conversion_time,
-                "result_type": type(result).__name__
-            })
+           
             
             # 提取文档内容
-            task.update_progress(70, "内容提取", "提取文档内容和元数据")
+            task.progress = 70
+            task.current_stage = "内容提取"
+            self._update_task_in_db(task)
             document = result.document
             
             logger.debug(f"开始提取文档内容，文档类型: {type(document).__name__}")
-            task.add_processing_log("debug", "开始提取文档内容", {
-                "document_type": type(document).__name__,
-                "has_pages": hasattr(document, 'pages')
-            })
+          
             
             # 构建返回结果
-            task.update_progress(75, "数据提取", "提取文档标题和内容")
+            task.progress = 75
+            task.current_stage = "数据提取"
+            self._update_task_in_db(task)
             
             # 提取基本信息
             document_title = getattr(document, 'title', Path(task.file_path).stem)
@@ -442,36 +374,44 @@ class DocumentParser:
             content_export_time = time.time() - content_start_time
             
             logger.info(f"Markdown内容导出完成，耗时: {content_export_time:.2f}秒，内容长度: {len(markdown_content)}")
-            task.add_processing_log("info", "Markdown内容导出完成", {
-                "content_length": len(markdown_content),
-                "export_time": content_export_time
-            })
+          
             
             # 提取元数据
-            task.update_progress(78, "元数据提取", "提取文档元数据")
+            task.progress = 78
+            task.current_stage = "元数据提取"
+            self._update_task_in_db(task)
             page_count = len(document.pages) if hasattr(document, 'pages') else 1
             file_size = Path(task.file_path).stat().st_size
             
             logger.debug(f"文档元数据 - 页数: {page_count}, 文件大小: {file_size}")
             
             # 提取表格
-            task.update_progress(80, "表格提取", "提取文档中的表格")
+            task.progress = 80
+            task.current_stage = "表格提取"
+            self._update_task_in_db(task)
             tables = self._extract_tables(document, task)
             
             # 提取图片
-            task.update_progress(82, "图片提取", "提取文档中的图片信息")
+            task.progress = 82
+            task.current_stage = "图片提取"
+            self._update_task_in_db(task)
             images = self._extract_images(document, task)
             
             # 跳过文档结构提取
-            task.update_progress(85, "结构提取", "跳过文档结构提取")
+            task.progress = 85
+            task.current_stage = "结构提取"
+            self._update_task_in_db(task)
             
             # 保存原始解析结果到文件（用于后处理）
-            task.update_progress(87, "文件保存", "保存原始解析结果")
+            task.progress = 87
+            task.current_stage = "文件保存"
+            self._update_task_in_db(task)
             output_dir = os.path.join(settings.OUTPUT_DIR, task.task_id)
             os.makedirs(output_dir, exist_ok=True)
             
-            # 保存原始markdown文件
-            original_md_path = os.path.join(output_dir, "content.md")
+            # 保存原始markdown文件 - 使用原始文档名称
+            file_stem = Path(task.file_path).stem
+            original_md_path = os.path.join(output_dir, f"{file_stem}.md")
             with open(original_md_path, 'w', encoding='utf-8') as f:
                 f.write(markdown_content)
             
@@ -488,13 +428,15 @@ class DocumentParser:
                         "page_idx": 1
                     })
             
-            # 保存content_list.json
-            content_list_path = os.path.join(output_dir, "content_list.json")
+            # 保存content_list.json - 使用原始文档名称
+            content_list_path = os.path.join(output_dir, f"{file_stem}_content_list.json")
             with open(content_list_path, 'w', encoding='utf-8') as f:
                 json.dump(content_list, f, ensure_ascii=False, indent=2)
             
             # 使用DocumentPostProcessor进行后处理
-            task.update_progress(90, "后处理", "使用DocumentPostProcessor增强结构化")
+            task.progress = 90
+            task.current_stage = "后处理"
+            self._update_task_in_db(task)
             from .document_post_processor import DocumentPostProcessor
             post_processor = DocumentPostProcessor()
             enhanced_result = post_processor.process_document(content_list_path, output_dir)
@@ -509,61 +451,32 @@ class DocumentParser:
                     markdown_content = enhanced_markdown
                     logger.info("已使用增强处理后的markdown内容")
             
-            # 构建精简的元数据结果
+            # 构建精简的解析结果，去除重复字段并扁平化
             parsed_result = {
                 "document_id": str(uuid.uuid4()),
                 "title": document_title,
-                "file_type": Path(task.file_path).suffix,
                 "page_count": page_count,
                 "content_length": len(markdown_content),
                 "parsed_at": time.time(),
                 "has_tables": len(tables) > 0,
                 "has_images": len(images) > 0,
-                "parser_type": "docling",
-                "enhanced": enhanced_result is not None
+                "output_directory": output_dir,
+                "enhanced": enhanced_result is not None,
+                "tables": tables,
+                "images": images
             }
-            
-            # 如果需要保存到文件，则包含完整信息用于保存
-            if task.config.get("save_to_file", False):
-                parsed_result.update({
-                    "file_path": task.file_path,
-                    "content": markdown_content,
-                    "metadata": {
-                        "title": document_title,
-                        "file_type": Path(task.file_path).suffix,
-                        "page_count": page_count,
-                        "content_length": len(markdown_content),
-                        "parsed_at": time.time(),
-                        "has_tables": len(tables) > 0,
-                        "has_images": len(images) > 0,
-                        "parser_type": "docling",
-                        "output_directory": output_dir,
-                        "enhanced": enhanced_result is not None
-                    },
-                    "tables": tables,
-                    "images": images
-                })
                 
                 # 不再包含文档结构信息
             
             logger.info(f"文档解析完成 - 页数: {page_count}, 表格: {len(tables)}, 图片: {len(images)}")
-            task.add_processing_log("info", "文档解析结果构建完成", {
-                "page_count": page_count,
-                "tables_count": len(tables),
-                "images_count": len(images),
-                "total_content_length": len(markdown_content)
-            })
+          
             
             return parsed_result
             
         except Exception as e:
             logger.error(f"解析文件 {task.file_path} 时出错: {e}")
             logger.error(f"错误详情: {traceback.format_exc()}")
-            task.add_processing_log("error", "文件解析过程出错", {
-                "error_message": str(e),
-                "error_type": type(e).__name__,
-                "traceback": traceback.format_exc()
-            })
+            
             raise
     
     async def _validate_file(self, task: ParseTask):
@@ -589,14 +502,10 @@ class DocumentParser:
                 raise ValueError(f"不支持的文件格式: {file_ext}")
             
             logger.debug(f"文件验证通过: {task.file_path}")
-            task.add_processing_log("debug", "文件验证通过", {
-                "file_size": file_size,
-                "file_extension": file_ext
-            })
+          
             
         except Exception as e:
             logger.error(f"文件验证失败: {e}")
-            task.add_processing_log("error", "文件验证失败", {"error": str(e)})
             raise
     
     def _extract_tables(self, document, task: ParseTask) -> List[Dict[str, Any]]:
@@ -605,8 +514,6 @@ class DocumentParser:
         try:
             if hasattr(document, 'tables'):
                 logger.debug(f"发现 {len(document.tables)} 个表格")
-                task.add_processing_log("debug", f"开始提取 {len(document.tables)} 个表格")
-                
                 for i, table in enumerate(document.tables):
                     try:
                         table_data = {}
@@ -626,17 +533,13 @@ class DocumentParser:
                         
                     except Exception as table_error:
                         logger.warning(f"提取表格 {i} 时出错: {table_error}")
-                        task.add_processing_log("warning", f"表格 {i} 提取失败", {"error": str(table_error)})
                         
                 logger.info(f"成功提取 {len(tables)} 个表格")
-                task.add_processing_log("info", f"表格提取完成，共 {len(tables)} 个表格")
             else:
                 logger.debug("文档中未发现表格")
-                task.add_processing_log("debug", "文档中未发现表格")
                 
         except Exception as e:
             logger.warning(f"提取表格时出错: {e}")
-            task.add_processing_log("warning", "表格提取过程出错", {"error": str(e)})
         return tables
     
     def _extract_images(self, document, task: ParseTask) -> List[Dict[str, Any]]:
@@ -645,7 +548,6 @@ class DocumentParser:
         try:
             if hasattr(document, 'pictures'):
                 logger.debug(f"发现 {len(document.pictures)} 个图片")
-                task.add_processing_log("debug", f"开始提取 {len(document.pictures)} 个图片信息")
                 
                 for i, picture in enumerate(document.pictures):
                     try:
@@ -661,17 +563,13 @@ class DocumentParser:
                         
                     except Exception as image_error:
                         logger.warning(f"提取图片 {i} 信息时出错: {image_error}")
-                        task.add_processing_log("warning", f"图片 {i} 信息提取失败", {"error": str(image_error)})
                         
                 logger.info(f"成功提取 {len(images)} 个图片信息")
-                task.add_processing_log("info", f"图片信息提取完成，共 {len(images)} 个图片")
             else:
                 logger.debug("文档中未发现图片")
-                task.add_processing_log("debug", "文档中未发现图片")
                 
         except Exception as e:
             logger.warning(f"提取图片信息时出错: {e}")
-            task.add_processing_log("warning", "图片信息提取过程出错", {"error": str(e)})
         return images
     
     async def _save_result_to_file(self, task_id: str, result: Dict[str, Any]) -> str:
@@ -680,13 +578,14 @@ class DocumentParser:
             output_dir = Path(settings.OUTPUT_DIR) / task_id
             output_dir.mkdir(parents=True, exist_ok=True)
             
-            # 保存markdown内容
-            md_file = output_dir / "content.md"
+            # 保存markdown内容 - 使用原始文档名称
+            file_stem = Path(result['file_path']).stem
+            md_file = output_dir / f"{file_stem}.md"
             with open(md_file, 'w', encoding='utf-8') as f:
                 f.write(result['content'])
             
-            # 保存结果JSON
-            json_file = output_dir / "result.json"
+            # 保存结果JSON - 使用原始文档名称
+            json_file = output_dir / f"{file_stem}.json"
             with open(json_file, 'w', encoding='utf-8') as f:
                 json.dump(result, f, ensure_ascii=False, indent=2)
             
@@ -752,6 +651,8 @@ class DocumentParser:
         # 尝试清理Docling任务
         if task_id in self.tasks:
             del self.tasks[task_id]
+            # 从数据库中删除任务
+            self.task_dao.delete_parse_task(task_id)
             logger.info(f"清理Docling任务: {task_id}")
             return True
         
@@ -760,6 +661,51 @@ class DocumentParser:
             return True
         
         return False
+    
+    def _save_task_to_db(self, task: ParseTask):
+        """保存任务到数据库"""
+        try:
+            file_path = Path(task.file_path)
+            task_data = {
+                'task_id': task.task_id,
+                'file_path': task.file_path,
+                'file_name': file_path.name,
+                'file_size': task.file_size,
+                'file_extension': file_path.suffix,
+                'mime_type': mimetypes.guess_type(task.file_path)[0],
+                'parser_type': task.config.get('parser_type'),
+                'status': task.status,
+                'progress': task.progress,
+                'current_stage': task.current_stage,
+                'stage_details': task.stage_details,
+                'config': task.config,
+                'processing_logs': task.processing_logs
+            }
+            self.task_dao.create_parse_task(task_data)
+        except Exception as e:
+            logger.error(f"保存任务到数据库失败: {e}")
+    
+    def _update_task_in_db(self, task: ParseTask):
+        """更新数据库中的任务"""
+        try:
+            update_data = {
+                'status': task.status,
+                'progress': task.progress,
+                'current_stage': task.current_stage,
+                'stage_details': task.stage_details,
+                'result': task.result,
+                'error': task.error,
+                'processing_logs': task.processing_logs
+            }
+            
+            if task.started_at:
+                update_data['started_at'] = datetime.fromtimestamp(task.started_at)
+            if task.completed_at:
+                update_data['completed_at'] = datetime.fromtimestamp(task.completed_at)
+                
+            self.task_dao.update_parse_task(task.task_id, update_data)
+        except Exception as e:
+            logger.error(f"更新数据库中的任务失败: {e}")
 
 # 全局解析器实例
 document_parser = DocumentParser()

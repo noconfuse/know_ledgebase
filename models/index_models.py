@@ -7,7 +7,8 @@
 import uuid
 from datetime import datetime
 from typing import Optional, Dict, Any
-from sqlalchemy import Column, String, DateTime, Text, UUID
+from sqlalchemy import Column, String, DateTime, Text, UUID, BigInteger, Integer
+from sqlalchemy.dialects.postgresql import JSON
 from sqlalchemy.ext.declarative import declarative_base
 
 Base = declarative_base()
@@ -22,6 +23,22 @@ class IndexInfo(Base):
     created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
     
+    # 文件信息字段
+    file_md5 = Column(String(32), nullable=True, index=True)  # 文件MD5哈希
+    file_path = Column(Text, nullable=True)  # 原始文件路径
+    file_name = Column(String(255), nullable=True)  # 文件名
+    file_size = Column(BigInteger, nullable=True)  # 文件大小（字节）
+    file_extension = Column(String(50), nullable=True)  # 文件扩展名
+    mime_type = Column(String(255), nullable=True)  # MIME类型
+    
+    # 文档和节点统计
+    document_count = Column(Integer, nullable=True)  # 文档数量
+    node_count = Column(Integer, nullable=True)  # 节点数量
+    vector_dimension = Column(Integer, nullable=True)  # 向量维度
+    
+    # 处理配置
+    processing_config = Column(JSON, nullable=True)  # 处理配置信息
+    
     def __repr__(self):
         return f"<IndexInfo(index_id='{self.index_id}', created_at='{self.created_at}')>"
     
@@ -32,5 +49,15 @@ class IndexInfo(Base):
             "index_id": self.index_id,
             "index_description": self.index_description,
             "created_at": self.created_at.isoformat() if self.created_at else None,
-            "updated_at": self.updated_at.isoformat() if self.updated_at else None
+            "updated_at": self.updated_at.isoformat() if self.updated_at else None,
+            "file_md5": self.file_md5,
+            "file_path": self.file_path,
+            "file_name": self.file_name,
+            "file_size": self.file_size,
+            "file_extension": self.file_extension,
+            "mime_type": self.mime_type,
+            "document_count": self.document_count,
+            "node_count": self.node_count,
+            "vector_dimension": self.vector_dimension,
+            "processing_config": self.processing_config
         }

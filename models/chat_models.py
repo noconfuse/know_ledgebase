@@ -25,6 +25,7 @@ class ChatSession(Base):
     created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
     last_activity = Column(DateTime, default=datetime.utcnow, nullable=False)
     is_active = Column(Boolean, default=True, nullable=False)
+    soft_deleted_at = Column(DateTime, nullable=True)  # 软删除时间
     session_metadata = Column(JSON, default=dict)  # 存储额外的会话元数据
     
     # 关联聊天消息
@@ -43,6 +44,7 @@ class ChatSession(Base):
             "created_at": self.created_at.isoformat() if self.created_at else None,
             "last_activity": self.last_activity.isoformat() if self.last_activity else None,
             "is_active": self.is_active,
+            "soft_deleted_at": self.soft_deleted_at.isoformat() if self.soft_deleted_at else None,
             "session_metadata": self.session_metadata,
             "message_count": len(self.messages) if self.messages else 0
         }

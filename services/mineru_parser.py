@@ -19,97 +19,15 @@ from magic_pdf.data.data_reader_writer import FileBasedDataWriter, FileBasedData
 from magic_pdf.data.dataset import PymuDocDataset
 from magic_pdf.model.doc_analyze_by_custom_model import doc_analyze
 from magic_pdf.config.enums import SupportedPdfParseMethod
+from models.task_models import ParseTask
+from models.parse_task import TaskStatus
+from dao.task_dao import TaskDAO
 
 # 初始化日志系统
 setup_logging()
 logger = get_logger(__name__)
 
-class MinerUParseTask:
-    """MinerU解析任务"""
-    def __init__(self, task_id: str, file_path: str, config: Dict[str, Any]):
-        self.task_id = task_id
-        self.file_path = file_path
-        self.config = config
-        self.status = "pending"
-        self.progress = 0
-        self.current_stage = "初始化"
-        self.stage_details = {}
-        self.result = None
-        self.error = None
-        self.created_at = time.time()
-        self.started_at = None
-        self.completed_at = None
-        self.processing_logs = []
-        self.file_info = self._get_file_info()
-        
-        # 记录任务创建日志
-        logger.info(f"创建MinerU解析任务 {task_id}，文件: {file_path}")
-        self._log_progress(0, "任务创建", "MinerU解析任务已创建")
-    
-    def _get_file_info(self) -> Dict[str, Any]:
-        """获取文件信息"""
-        try:
-            file_path = Path(self.file_path)
-            stat = file_path.stat()
-            return {
-                "name": file_path.name,
-                "size": stat.st_size,
-                "extension": file_path.suffix,
-                "created_time": stat.st_ctime,
-                "modified_time": stat.st_mtime
-            }
-        except Exception as e:
-            logger.warning(f"获取文件信息失败: {e}")
-            return {}
-    
-    def update_progress(self, progress: int, stage: str, message: str, details: Dict[str, Any] = None):
-        """更新任务进度"""
-        self.progress = progress
-        self.current_stage = stage
-        if details:
-            self.stage_details.update(details)
-        
-        # 添加处理日志
-        log_entry = {
-            "timestamp": datetime.now().isoformat(),
-            "progress": progress,
-            "stage": stage,
-            "message": message,
-            "details": details or {}
-        }
-        self.processing_logs.append(log_entry)
-        
-        # 记录进度日志
-        self._log_progress(progress, stage, message, details)
-        logger.debug(f"MinerU任务 {self.task_id} 进度更新: {progress}% - {stage} - {message}")
-    
-    def _log_progress(self, progress: int, stage: str, message: str, details: Dict[str, Any] = None):
-        """记录进度到专用日志"""
-        log_progress(
-            task_id=self.task_id,
-            progress=progress,
-            stage=stage,
-            message=message,
-            details={
-                "file_path": self.file_path,
-                "parser_type": "mineru",
-                **(details or {})
-            }
-        )
-    
-    def add_processing_log(self, level: str, message: str, details: Dict[str, Any] = None):
-        """添加处理日志"""
-        log_entry = {
-            "timestamp": datetime.now().isoformat(),
-            "level": level,
-            "message": message,
-            "details": details or {}
-        }
-        self.processing_logs.append(log_entry)
-        
-        # 根据级别记录到相应的日志
-        log_func = getattr(logger, level, logger.info)
-        log_func(f"[{self.task_id}] {message}", extra={"details": details})
+# MinerUParseTask已被移除，现在统一使用ParseTask
 
 class MinerUDocumentParser:
     """MinerU文档解析器"""
@@ -125,7 +43,8 @@ class MinerUDocumentParser:
     def __init__(self):
         if not self._initialized:
             logger.info("开始初始化MinerUDocumentParser...")
-            self.tasks: Dict[str, MinerUParseTask] = {}
+            self.tasks: Dict[str, ParseTask] = {}
+            self.task_dao = TaskDAO()
             self._initialized = True
             logger.info(f"MinerUDocumentParser初始化完成")
             logger.info(f"MinerU输出目录: {settings.OUTPUT_DIR}")
@@ -155,8 +74,24 @@ class MinerUDocumentParser:
         task_id = str(uuid.uuid4())
         task_config = config or {}
         
-        task = MinerUParseTask(task_id, file_path, task_config)
+        # 获取文件信息
+        file_path_obj = Path(file_path)
+        file_stat = file_path_obj.stat()
+        
+        task = ParseTask(
+            task_id=task_id,
+            file_path=file_path,
+            file_name=file_path_obj.name,
+            file_size=file_stat.st_size,
+            file_extension=file_path_obj.suffix,
+            parser_type="mineru",
+            config=task_config,
+            status=TaskStatus.PENDING
+        )
         self.tasks[task_id] = task
+        
+        # 保存到数据库
+        self._save_task_to_db(task)
         
         # 异步执行解析
         asyncio.create_task(self._execute_parse_task(task))
@@ -164,15 +99,21 @@ class MinerUDocumentParser:
         logger.info(f"Created MinerU parse task {task_id} for file: {file_path}")
         return task_id
     
-    async def _execute_parse_task(self, task: MinerUParseTask):
+    async def _execute_parse_task(self, task: ParseTask):
         """执行解析任务"""
         try:
-            task.status = "running"
-            task.started_at = time.time()
-            task.update_progress(5, "任务开始", "开始执行MinerU解析任务")
+            task.status = TaskStatus.RUNNING
+            task.started_at = datetime.utcnow()
+            task.progress = 5
+            task.current_stage = "任务开始"
+            
+            # 更新数据库状态
+            self._update_task_in_db(task)
             
             # 验证文件
-            task.update_progress(10, "文件验证", "验证输入文件")
+            task.progress = 10
+            task.current_stage = "文件验证"
+            self._update_task_in_db(task)
             self._validate_file(task.file_path)
             
             # 执行解析
@@ -180,17 +121,26 @@ class MinerUDocumentParser:
             
             # 任务完成
             task.result = result
-            task.status = "completed"
-            task.completed_at = time.time()
-            task.update_progress(100, "解析完成", "MinerU文档解析完成")
+            task.status = TaskStatus.COMPLETED
+            task.completed_at = datetime.utcnow()
+            task.progress = 100
+            task.current_stage = "解析完成"
+            
+            # 更新数据库状态和结果
+            self._update_task_in_db(task)
             
             logger.info(f"MinerU解析任务 {task.task_id} 完成")
             
         except Exception as e:
             task.error = str(e)
-            task.status = "failed"
-            task.completed_at = time.time()
-            task.update_progress(0, "解析失败", f"解析失败: {str(e)}")
+            task.status = TaskStatus.FAILED
+            task.completed_at = datetime.utcnow()
+            task.progress = 0
+            task.current_stage = "解析失败"
+            task.error = f"解析失败: {str(e)}"
+            
+            # 更新数据库状态和错误信息
+            self._update_task_in_db(task)
             
             logger.error(f"MinerU解析任务 {task.task_id} 失败: {e}")
             logger.error(f"错误详情: {traceback.format_exc()}")
@@ -207,15 +157,19 @@ class MinerUDocumentParser:
         if file_size > settings.MAX_FILE_SIZE:
             raise ValueError(f"文件大小 {file_size} 超过最大限制 {settings.MAX_FILE_SIZE}")
     
-    async def _sync_parse_file(self, task: MinerUParseTask) -> Dict[str, Any]:
+    async def _sync_parse_file(self, task: ParseTask) -> Dict[str, Any]:
         """同步解析文件"""
         try:
             # 准备输出目录
-            task.update_progress(15, "准备输出目录", "创建MinerU输出目录")
+            task.progress = 15
+            task.current_stage = "准备输出目录"
+            self._update_task_in_db(task)
             output_dir = self._prepare_output_directory(task)
             
             # 开始MinerU解析
-            task.update_progress(20, "MinerU解析", "开始MinerU PDF解析")
+            task.progress = 20
+            task.current_stage = "MinerU解析"
+            self._update_task_in_db(task)
             logger.info(f"开始MinerU解析: {task.file_path}")
             
             start_time = time.time()
@@ -229,31 +183,46 @@ class MinerUDocumentParser:
             )
             
             conversion_time = time.time() - start_time
-            task.update_progress(70, "解析完成", "MinerU解析完成", {
+            task.progress = 70
+            task.current_stage = "解析完成"
+            if not task.stage_details:
+                task.stage_details = {}
+            task.stage_details.update({
                 "conversion_time": conversion_time
             })
+            self._update_task_in_db(task)
             
             logger.info(f"MinerU解析完成，耗时: {conversion_time:.2f}秒")
             
             # 处理解析结果
-            task.update_progress(75, "结果处理", "处理MinerU解析结果")
+            task.progress = 75
+            task.current_stage = "结果处理"
+            self._update_task_in_db(task)
             processed_result = self._process_parse_result(task, parse_result, output_dir)
             
             # 使用DocumentPostProcessor进行后处理
-            task.update_progress(80, "后处理", "使用DocumentPostProcessor增强结构化")
+            task.progress = 80
+            task.current_stage = "后处理"
+            self._update_task_in_db(task)
             post_processor = DocumentPostProcessor()
-            content_json_path = os.path.join(output_dir, "content_list.json")
+            # 使用原始文件名（去掉扩展名）作为基础名
+            base_name = Path(task.file_name).stem
+            content_json_path = os.path.join(output_dir, f"{base_name}_content_list.json")
             if os.path.exists(content_json_path):
                 enhanced_result = post_processor.process_document(content_json_path, output_dir)
             else:
                 enhanced_result = None
-                logger.warning(f"未找到content.json文件: {content_json_path}")
+                logger.warning(f"未找到content_list.json文件: {content_json_path}")
             
             # 提取内容和元数据
-            task.update_progress(85, "内容提取", "提取文档内容和元数据")
+            task.progress = 85
+            task.current_stage = "内容提取"
+            self._update_task_in_db(task)
             final_result = self._extract_content_and_metadata(task, processed_result, enhanced_result)
             
-            task.update_progress(95, "结果整理", "整理最终解析结果")
+            task.progress = 95
+            task.current_stage = "结果整理"
+            self._update_task_in_db(task)
             
             return final_result
             
@@ -261,7 +230,7 @@ class MinerUDocumentParser:
             logger.error(f"MinerU解析失败: {e}")
             raise
     
-    def _prepare_output_directory(self, task: MinerUParseTask) -> str:
+    def _prepare_output_directory(self, task: ParseTask) -> str:
         """准备输出目录"""
         # 使用与Docling相同的目录结构: OUTPUT_DIR / task_id
         output_dir = os.path.join(settings.OUTPUT_DIR, task.task_id)
@@ -270,7 +239,7 @@ class MinerUDocumentParser:
         logger.info(f"MinerU输出目录: {output_dir}")
         return output_dir
     
-    def _process_parse_result(self, task: MinerUParseTask, parse_result: Dict, output_dir: str) -> Dict[str, Any]:
+    def _process_parse_result(self, task: ParseTask, parse_result: Dict, output_dir: str) -> Dict[str, Any]:
         """处理MinerU解析结果"""
         try:
             # MinerU返回的结果包含各种输出文件路径
@@ -299,7 +268,7 @@ class MinerUDocumentParser:
             logger.error(f"处理MinerU解析结果失败: {e}")
             raise
     
-    def _extract_content_and_metadata(self, task: MinerUParseTask, processed_result: Dict[str, Any], enhanced_result: Dict[str, Any] = None) -> Dict[str, Any]:
+    def _extract_content_and_metadata(self, task: ParseTask, processed_result: Dict[str, Any], enhanced_result: Dict[str, Any] = None) -> Dict[str, Any]:
         """提取内容和元数据"""
         try:
             # 优先使用enhanced_result中的内容，如果没有则使用原始结果
@@ -332,16 +301,17 @@ class MinerUDocumentParser:
             image_blocks = [item for item in content_list if item.get("type") == "image"]
             table_blocks = [item for item in content_list if item.get("type") == "table"]
             
-            # 构建解析结果
+            # 构建精简的解析结果，去除重复字段并扁平化
             parsed_result = {
                 "document_id": str(uuid.uuid4()),
                 "title": document_title,
-                "file_type": Path(task.file_path).suffix,
                 "content_length": len(markdown_content),
                 "parsed_at": time.time(),
-                "parser_type": "mineru",
                 "has_tables": len(table_blocks) > 0,
                 "has_images": len(image_blocks) > 0,
+                "output_directory": processed_result.get("output_directory"),
+                "output_files": output_files,
+                "enhanced": enhanced_result is not None,
                 "statistics": {
                     "text_blocks": len(text_blocks),
                     "image_blocks": len(image_blocks),
@@ -349,24 +319,6 @@ class MinerUDocumentParser:
                     "total_blocks": len(content_list)
                 }
             }
-            
-            # 如果需要保存到文件，则包含完整信息
-            if task.config.get("save_to_file", False):
-                parsed_result.update({
-                    "file_path": task.file_path,
-                    "content": markdown_content,
-                    "metadata": {
-                        "title": document_title,
-                        "file_type": Path(task.file_path).suffix,
-                        "file_size": file_size,
-                        "content_length": len(markdown_content),
-                        "parser_type": "mineru",
-                        "output_directory": processed_result.get("output_directory"),
-                        "output_files": output_files,
-                        "enhanced": enhanced_result is not None
-                    },
-                    "content_list": content_list
-                })
             
             logger.info(f"MinerU内容提取完成 - 标题: {document_title}, 内容长度: {len(markdown_content)}")
             return parsed_result
@@ -479,50 +431,103 @@ class MinerUDocumentParser:
         pipe_result.draw_layout(visual_outputs["layout_visualization"])
         pipe_result.draw_span(visual_outputs["spans_visualization"])
 
-        # 核心数据输出文件 - 使用与Docling相同的文件名
+        # 核心数据输出文件 - 使用原始文档名称
+        md_filename = f"{base_name}.md"
+        content_list_filename = f"{base_name}_content_list.json"
+        mediate_filename = f"{base_name}_mediate.json"
+        
         data_outputs = {
-            "markdown": os.path.join(output_dir, "content.md"),
-            "content_list": os.path.join(output_dir, "content_list.json"),
-            "intermediate_data": os.path.join(output_dir, "mediate.json"),
+            "markdown": os.path.join(output_dir, md_filename),
+            "content_list": os.path.join(output_dir, content_list_filename),
+            "intermediate_data": os.path.join(output_dir, mediate_filename),
         }
-        pipe_result.dump_md(md_writer, "content.md", img_rel_dir)
-        pipe_result.dump_content_list(md_writer, "content_list.json", img_rel_dir)
-        pipe_result.dump_middle_json(md_writer, "mediate.json")
+        pipe_result.dump_md(md_writer, md_filename, img_rel_dir)
+        pipe_result.dump_content_list(md_writer, content_list_filename, img_rel_dir)
+        pipe_result.dump_middle_json(md_writer, mediate_filename)
 
         return {**visual_outputs, **data_outputs}
     
     def get_task_status(self, task_id: str) -> Optional[Dict[str, Any]]:
         """获取任务状态"""
+        # 优先从内存获取
         task = self.tasks.get(task_id)
-        if not task:
-            return None
+        if task:
+            return task.to_dict()
         
-        return {
-            "task_id": task.task_id,
-            "status": task.status,
-            "progress": task.progress,
-            "current_stage": task.current_stage,
-            "stage_details": task.stage_details,
-            "file_info": task.file_info,
-            "created_at": task.created_at,
-            "started_at": task.started_at,
-            "completed_at": task.completed_at,
-            "processing_logs": task.processing_logs[-10:],  # 只返回最近10条日志
-            "error": task.error
-        }
+        # 从数据库获取
+        db_task = self.task_dao.get_parse_task(task_id)
+        if db_task:
+            return db_task.to_dict()
+        
+        return None
     
     def get_task_result(self, task_id: str) -> Optional[Dict[str, Any]]:
         """获取任务结果"""
+        # 优先从内存获取
         task = self.tasks.get(task_id)
-        if not task or task.status != "completed":
-            return None
+        if task and task.status == TaskStatus.COMPLETED:
+            return task.result
         
-        return task.result
+        # 从数据库获取
+        db_task = self.task_dao.get_parse_task(task_id)
+        if db_task and db_task.status == TaskStatus.COMPLETED:
+            return db_task.result
+        
+        return None
     
     def cleanup_task(self, task_id: str) -> bool:
         """清理任务"""
+        # 从内存清理
         if task_id in self.tasks:
             del self.tasks[task_id]
+        
+        # 从数据库删除
+        success = self.task_dao.delete_parse_task(task_id)
+        if success:
             logger.info(f"清理MinerU任务: {task_id}")
-            return True
-        return False
+        
+        return success
+    
+    def _save_task_to_db(self, task: ParseTask):
+        """保存任务到数据库"""
+        try:
+            task_data = {
+                'task_id': task.task_id,
+                'file_path': task.file_path,
+                'file_name': task.file_name,
+                'file_size': task.file_size,
+                'file_extension': task.file_extension,
+                'parser_type': 'mineru',
+                'status': task.status,
+                'progress': task.progress,
+                'current_stage': task.current_stage,
+                'stage_details': task.stage_details,
+                'config': task.config,
+                'processing_logs': task.processing_logs
+            }
+            self.task_dao.create_parse_task(task_data)
+            logger.debug(f"任务 {task.task_id} 已保存到数据库")
+        except Exception as e:
+            logger.error(f"保存任务到数据库失败: {e}")
+    
+    def _update_task_in_db(self, task: ParseTask):
+        """更新数据库中的任务"""
+        try:
+            update_data = {
+                'status': task.status,
+                'progress': task.progress,
+                'current_stage': task.current_stage,
+                'stage_details': task.stage_details,
+                'processing_logs': task.processing_logs,
+                'started_at': task.started_at,
+                'completed_at': task.completed_at,
+                'result': task.result,
+                'error': task.error
+            }
+            self.task_dao.update_parse_task(task.task_id, update_data)
+            logger.debug(f"任务 {task.task_id} 状态已更新到数据库")
+        except Exception as e:
+            logger.error(f"更新任务状态到数据库失败: {e}")
+
+# 创建全局实例
+mineru_parser = MinerUDocumentParser()

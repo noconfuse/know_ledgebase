@@ -801,8 +801,8 @@ class RAGService:
             # 在数据库中创建或更新会话
             db_session = ChatDAO.create_session(
                 session_id=session_id,
-                index_ids=valid_index_ids,
                 user_id=user_id,
+                index_ids=valid_index_ids,
                 metadata={
                     "created_at": datetime.utcnow().isoformat(),
                     "source": "rag_service"
@@ -852,6 +852,7 @@ class RAGService:
             # 导入必要的模块
             from llama_index.retrievers.bm25 import BM25Retriever
             from llama_index.core.retrievers import QueryFusionRetriever
+            from services.filtered_retriever import FilteredRetriever
             
             # 统一处理单索引和多索引情况，使用混合检索
             all_retrievers = []
@@ -887,13 +888,13 @@ class RAGService:
             # 创建检索器 - 根据检索器数量决定使用单检索器还是融合检索器
             if len(all_retrievers) == 1:
                 # 只有一个检索器，直接使用
-                retriever = all_retrievers[0]
+                base_retriever = all_retrievers[0]
                 logger.info("Using single retriever with node postprocessors")
             else:
                 # 多个检索器，使用融合检索器
                 try:
                     # QueryFusionRetriever不支持node_postprocessors参数
-                    retriever = QueryFusionRetriever(
+                    base_retriever = QueryFusionRetriever(
                         retrievers=all_retrievers,
                         similarity_top_k=settings.RETRIEVAL_TOP_K,
                         num_queries=4,  # 生成4个查询变体
@@ -905,17 +906,24 @@ class RAGService:
                 except Exception as e:
                     # 如果融合检索器创建失败，使用第一个检索器作为备选
                     logger.warning(f"Failed to create QueryFusionRetriever: {e}, falling back to first retriever")
-                    retriever = all_retrievers[0]
+                    base_retriever = all_retrievers[0]
+            
+            # 使用过滤检索器包装基础检索器，确保相似度过滤被应用
+            retriever = FilteredRetriever(
+                base_retriever=base_retriever,
+                similarity_threshold=settings.SIMILARITY_THRESHOLD
+            )
+            logger.info(f"Wrapped retriever with similarity threshold filter: {settings.SIMILARITY_THRESHOLD}")
             
         
             # 创建聊天引擎
             session.chat_engine = CondensePlusContextChatEngine.from_defaults(
-                retriever=retriever,
+                retriever=base_retriever,
                 memory=session.memory,
                 node_postprocessors=node_postprocessors,
                 llm=self.llm,
                 verbose=True,
-                system_prompt="你是一个有用的AI助手。请基于提供的上下文信息回答用户的问题。如果上下文信息不足以回答问题，请诚实地告知用户，并尽可能提供相关的帮助。请用中文回答。",
+                system_prompt="你是一个专业的文档查询助手。请直接引用和展示提供的上下文文档中的原始内容来回答用户问题，不要对内容进行总结、概括或添加自己的评价。如果上下文信息不足以回答问题，请明确告知用户缺少相关信息。请保持原文档的完整性和准确性，用中文回答。",
             )
 
             
@@ -1159,22 +1167,22 @@ class RAGService:
     
     def cleanup_expired_sessions(self):
         """清理过期会话"""
-        # 清理内存中的过期会话
+        # 清理内存中的过期会话（30天）
         current_time = time.time()
+        memory_expire_time = settings.SESSION_SOFT_DELETE_DAYS * 24 * 3600  # 30天转换为秒
         expired_sessions = [
             session_id for session_id, session in self.sessions.items()
-            if current_time - session.last_activity > settings.TASK_EXPIRE_TIME
+            if current_time - session.last_activity > memory_expire_time
         ]
         
         for session_id in expired_sessions:
             del self.sessions[session_id]
             logger.info(f"Cleaned up expired session from memory: {session_id}")
         
-        # 清理数据库中的过期会话
-        expire_hours = settings.TASK_EXPIRE_TIME / 3600  # 转换为小时
-        cleaned_count = ChatDAO.cleanup_expired_sessions(expire_hours)
-        if cleaned_count > 0:
-            logger.info(f"Cleaned up {cleaned_count} expired sessions from database")
+        # 清理数据库中的过期会话（软删除和硬删除）
+        cleanup_result = ChatDAO.cleanup_expired_sessions()
+        if cleanup_result["soft_deleted"] > 0 or cleanup_result["hard_deleted"] > 0:
+            logger.info(f"Database cleanup: {cleanup_result['soft_deleted']} soft deleted, {cleanup_result['hard_deleted']} hard deleted")
     
     def get_loaded_indexes(self) -> List[str]:
         """获取已加载的索引列表"""

@@ -83,7 +83,7 @@ class Settings(BaseSettings):
     LLM_API_VERSION: Optional[str] = ""
     LLM_MODEL_NAME: str = "THUDM/glm-4-9b-chat"
     LLM_MAX_TOKENS: int = 4096
-    LLM_TEMPERATURE: float = 0.7
+    LLM_TEMPERATURE: float = 0.0
     LLM_CONTEXT_WINDOW: int = 8192  # LLM上下文窗口大小
     LLM_NUM_OUTPUT: int = 1024      # LLM输出token数量
     
@@ -91,6 +91,10 @@ class Settings(BaseSettings):
     TASK_EXPIRE_TIME: int = 3600  # 1小时
     MAX_CONCURRENT_TASKS: int = 3
     MAX_FILE_SIZE: int = 800 * 1024 * 1024  # 800MB
+    
+    # 会话管理配置
+    SESSION_SOFT_DELETE_DAYS: int = 30  # 30天后软删除
+    SESSION_HARD_DELETE_DAYS: int = 180  # 180天后硬删除
     
     # 日志配置
     LOG_LEVEL: str = "INFO"
