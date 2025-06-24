@@ -16,8 +16,8 @@ class DocumentPostProcessor:
     def __init__(self):
         """初始化文档后处理器"""
         self.hierarchy_patterns = [
-            r"^(第[一二三四五六七八九十\d\s]*章)",
-            r"^(第[一二三四五六七八九十\d\s]*条)", # 第一条
+            r"^(第[一二三四五六七八九十\-\d\s]*章)",
+            r"^(第[一二三四五六七八九十\-\d\s]*条)", # 第一条
             r"^(第[\d\s]*节)",
             r"^(\d+\.\d+\.\d+)\s*",  # 3.1.2
             r"^(\d+\.\d+\.\d+\.\d+)\s*",  # 3.1.2.1
@@ -68,6 +68,9 @@ class DocumentPostProcessor:
                 if not text.strip():
                     continue
                 
+                # 删除文本开头的所有#号及其后面的空格
+                text = re.sub(r'^#+\s*', '', text)
+
                 # 检查是否是目录标题
                 if text.strip() == "目录" and item.get('text_level') == 1:
                     # 跳过目录标题，并标记跳过下一个包含目录内容的项目

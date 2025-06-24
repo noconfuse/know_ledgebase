@@ -63,3 +63,7 @@ class TokenData(BaseModel):
     """令牌数据"""
     user_id: Optional[str] = None
     username: Optional[str] = None
+
+
+class FreeLoginRequest(BaseModel):
+    token: str

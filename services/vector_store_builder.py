@@ -31,6 +31,7 @@ from services.document_parser import document_parser, TaskStatus
 from common.postgres_vector_store import create_postgres_vector_store_builder
 from dao.task_dao import TaskDAO
 from models.task_models import VectorStoreTask
+from services.model_client_factory import ModelClientFactory
 
 logger = logging.getLogger(__name__)
 
@@ -61,43 +62,9 @@ class VectorStoreBuilder:
         """设置模型"""
         try:
             # 初始化嵌入模型
-            self.embed_model = HuggingFaceEmbedding(
-                model_name=settings.EMBED_MODEL_PATH,
-                device=settings.GPU_DEVICE if settings.USE_GPU else "cpu",
-                trust_remote_code=True
-            )
+            self.embed_model = ModelClientFactory.create_embedding_client(settings.embedding_model_settings)
             
-            # 初始化LLM（用于摘要和问答生成）
-            if settings.LLM_API_BASE and settings.LLM_API_KEY:
-                # 使用第三方API
-                self.llm = OpenAILike(
-                    api_base=settings.LLM_API_BASE,
-                    api_key=settings.LLM_API_KEY,
-                    api_version=settings.LLM_API_VERSION,
-                    model=settings.LLM_MODEL_NAME,
-                    max_tokens=settings.LLM_MAX_TOKENS,
-                    temperature=settings.LLM_TEMPERATURE,
-                    is_chat_model=True,
-                )
-                logger.info(f"Using external LLM API: {settings.LLM_API_BASE}")
-            else:
-                # 使用本地模型
-                self.llm = HuggingFaceLLM(
-                    model_name=settings.LLM_MODEL_PATH,
-                    device_map="auto" if settings.USE_GPU else None,
-                    model_kwargs={
-                        "torch_dtype": "auto",
-                        "trust_remote_code": True
-                    },
-                    tokenizer_kwargs={
-                        "trust_remote_code": True
-                    },
-                    max_new_tokens=settings.LLM_MAX_TOKENS,
-                    temperature=settings.LLM_TEMPERATURE
-                )
-                logger.info(f"Using local LLM: {settings.LLM_MODEL_PATH}")
-            
-            logger.info("Models initialized successfully")
+            self.llm = ModelClientFactory.create_llm_client(settings.llm_model_settings)
             
         except Exception as e:
             logger.error(f"Failed to initialize models: {e}")
@@ -389,29 +356,39 @@ class VectorStoreBuilder:
             raise
     
     def _collect_documents(self, task: VectorStoreTask) -> List[Document]:
-        """收集目录中的文档"""
+        """
+        收集目录中的文档
+        - 目录主任务：递归收集子任务文档，不校验output_directory
+        - 单文件解析任务：必须有output_directory
+        - 针对目录中的html文件，直接转为Document对象
+        """
         documents = []
-        
-        # 从解析任务获取输出目录
+        # 从解析任务获取输出目录 
         parse_task = self.task_dao.get_parse_task(task.parse_task_id)
         if not parse_task:
             raise ValueError(f"Parse task not found: {task.parse_task_id}")
-        
-        directory_path = None
-        if parse_task.output_directory:
-            directory_path = parse_task.output_directory
-        elif parse_task.result and parse_task.result.get('output_directory'):
-            directory_path = parse_task.result.get('output_directory')
-        
-        if not directory_path:
-            raise ValueError(f"No output directory found for parse task {task.parse_task_id}")
-        
-        directory = Path(directory_path)
-        
-        # 检查是否是knowledge/outputs格式的目录
-        if self._is_knowledge_outputs_format(directory):
-            return self._collect_from_knowledge_outputs(task, directory)
+
+        is_directory = bool(parse_task.config and parse_task.config.get("is_directory"))
+        if is_directory:
+            # 目录主任务：递归收集子任务文档，不校验output_directory
+            return self._collect_documents_from_directory_parse_task(task, parse_task)
         else:
+            # 单文件解析任务：必须有output_directory
+            directory_path = None
+            if parse_task.output_directory:
+                directory_path = parse_task.output_directory
+            elif parse_task.result and parse_task.result.get('output_directory'):
+                directory_path = parse_task.result.get('output_directory')
+            if not directory_path:
+                raise ValueError(f"No output directory found for parse task {task.parse_task_id}")
+            directory = Path(directory_path)
+            # 优先处理knowledge/outputs格式
+            if self._is_knowledge_outputs_format(directory):
+                return self._collect_from_knowledge_outputs(task, directory)
+            # 新增：收集html文件
+            html_docs = self._collect_html_documents_from_dir(task, directory)
+            if html_docs:
+                return html_docs
             return documents
     
     def _is_knowledge_outputs_format(self, directory: Path) -> bool:
@@ -449,6 +426,77 @@ class VectorStoreBuilder:
         
         # 最后回退到使用目录名
         return directory.name
+
+
+    def _collect_html_documents_from_dir(self, task: VectorStoreTask, directory: Path) -> list:
+        """收集目录下所有html/htm文件，转为Document对象"""
+        documents = []
+        html_files = list(directory.glob('*.html')) + list(directory.glob('*.htm'))
+        for html_file in html_files:
+            try:
+                content = html_file.read_text(encoding='utf-8')
+                metadata = {
+                    # "file_path": str(html_file),  # 移除 file_path，避免元数据过大
+                    "file_type": ".html" if html_file.suffix == ".html" else ".htm",
+                    "source_file": html_file.stem
+                }
+                # 尝试补充 original_file_path/original_file_name
+                if task.parse_task_id:
+                    from .document_parser import document_parser
+                    parse_task = document_parser.get_task_status(task.parse_task_id)
+                    if parse_task:
+                        original_file_path = parse_task.get('file_path')
+                        if original_file_path:
+                            metadata['original_file_path'] = original_file_path
+                            metadata['original_file_name'] = Path(original_file_path).name
+                doc = Document(text=content, metadata=metadata)
+                documents.append(doc)
+                task.processed_files.append(str(html_file))
+            except Exception as e:
+                logger.warning(f"Failed to process html file {html_file}: {e}")
+        return documents
+    
+    def _collect_documents_from_directory_parse_task(self, task: VectorStoreTask, parse_task: Any) -> List[Document]:
+        """
+        从目录解析任务的子任务中收集文档。
+        - 优先 knowledge/outputs 格式
+        - 否则收集 html 文件
+        - 统一复用 _collect_from_knowledge_outputs 和 _collect_html_documents_from_dir
+        """
+        documents = []
+        logger.info(f"Collecting documents from directory parse task: {parse_task.task_id}")
+        if not parse_task.config or "subtasks" not in parse_task.config:
+            logger.warning(f"Directory parse task {parse_task.task_id} has no subtasks defined.")
+            return []
+        subtasks_info = parse_task.config["subtasks"]
+        for subtask_info in subtasks_info:
+            subtask_id = subtask_info.get("task_id")
+            if not subtask_id:
+                logger.warning(f"Subtask info missing task_id: {subtask_info}")
+                continue
+            sub_parse_task = self.task_dao.get_parse_task(subtask_id)
+            if not (sub_parse_task and sub_parse_task.status == TaskStatus.COMPLETED):
+                logger.warning(f"Subtask {subtask_id} is not completed or not found. Status: {sub_parse_task.status if sub_parse_task else 'Not Found'}")
+                continue
+            sub_directory_path = sub_parse_task.output_directory or (sub_parse_task.result and sub_parse_task.result.get('output_directory'))
+            if not sub_directory_path:
+                logger.warning(f"No output directory found for subtask {subtask_id}.")
+                continue
+            sub_directory = Path(sub_directory_path)
+            # 优先 knowledge/outputs 格式
+            if self._is_knowledge_outputs_format(sub_directory):
+                logger.info(f"Collecting documents from subtask output directory: {sub_directory_path}")
+                documents.extend(self._collect_from_knowledge_outputs(task, sub_directory))
+            else:
+                # 新增：收集html文件
+                html_docs = self._collect_html_documents_from_dir(task, sub_directory)
+                if html_docs:
+                    logger.info(f"Collecting html documents from subtask output directory: {sub_directory_path}")
+                    documents.extend(html_docs)
+                else:
+                    logger.warning(f"Subtask output directory {sub_directory_path} is not in expected format and contains no html files.")
+        logger.info(f"Finished collecting documents from directory parse task. Total documents: {len(documents)}")
+        return documents
     
     def _collect_from_knowledge_outputs(self, task: VectorStoreTask, directory: Path) -> List[Document]:
         """从knowledge/outputs格式的目录收集文档"""
@@ -465,14 +513,13 @@ class VectorStoreBuilder:
                 content = content_file.read_text(encoding='utf-8')
                 
                 # 读取content_list.json元数据
-                import json
                 with open(content_list_file, 'r', encoding='utf-8') as f:
                     content_list_data = json.load(f)
                 
                 if content.strip():
                     # 构建基础元数据
                     metadata = {
-                        "file_path": str(content_file),
+                        # "file_path": str(content_file),  # 移除 file_path，避免元数据过大
                         "file_type": ".md",
                         "source_file": base_name  # 原始文件名
                     }
@@ -790,7 +837,6 @@ class VectorStoreBuilder:
         Returns:
             添加了页码信息的节点列表
         """
-        import json
         from pathlib import Path
         
         # 按文档分组节点
@@ -798,12 +844,12 @@ class VectorStoreBuilder:
         for node in nodes:
             if not hasattr(node, 'metadata'):
                 continue
-                
-            # 获取原始文档路径
-            doc_path = node.metadata.get('file_path')
+            
+            # 优先用 original_file_path 分组，否则 fallback 到 file_path
+            doc_path = node.metadata.get('original_file_path') or node.metadata.get('file_path')
             if not doc_path:
                 continue
-                
+            
             if doc_path not in nodes_by_doc:
                 nodes_by_doc[doc_path] = []
             nodes_by_doc[doc_path].append(node)
@@ -812,7 +858,6 @@ class VectorStoreBuilder:
         for doc_path, doc_nodes in nodes_by_doc.items():
             # 根据文档路径构建content_list.json路径
             doc_file = Path(doc_path)
-            # 使用新的文件命名规则：文件名_content_list.json
             base_name = doc_file.stem
             content_list_path = doc_file.parent / f"{base_name}_content_list.json"
             
@@ -843,7 +888,7 @@ class VectorStoreBuilder:
             for node in doc_nodes:
                 if not hasattr(node, 'text') or not node.text:
                     continue
-                    
+                
                 # 尝试直接匹配
                 if node.text in text_to_page:
                     node.metadata['page_idx'] = text_to_page[node.text]
@@ -860,7 +905,7 @@ class VectorStoreBuilder:
                 if best_match:
                     node.metadata['page_idx'] = text_to_page[best_match]
                     continue
-                    
+                
                 # 如果没有匹配，尝试反向匹配（查找包含节点文本的最短content_list文本）
                 best_match = None
                 best_match_length = float('inf')
@@ -1084,22 +1129,23 @@ class VectorStoreBuilder:
             raise ValueError(f"Parse task not found: {task_id}")
         
         if parse_task.status != 'COMPLETED':
-            raise ValueError(f"Parse task {task_id} is not completed yet")
+            raise ValueError(f"Parse task {task_id} is not completed. Current status: {parse_task.status}")
         
-        # 从解析任务获取输出目录
+        # 判断是否为目录解析主任务
+        is_directory = bool(parse_task.config and parse_task.config.get("is_directory"))
         output_dir = None
-        print(parse_task,'parse_task')
-        if parse_task.output_directory:
-            output_dir = parse_task.output_directory
-        elif parse_task.result and parse_task.result.get('output_directory'):
-            output_dir = parse_task.result.get('output_directory')
-        
-        if not output_dir:
-            raise ValueError(f"No output directory found for parse task {task_id}")
-        
-        # 检查输出目录是否存在
-        if not os.path.exists(output_dir):
-            raise ValueError(f"Output directory does not exist: {output_dir}")
+        if not is_directory:
+            # 单文件解析任务必须有output_directory
+            if parse_task.output_directory:
+                output_dir = parse_task.output_directory
+            elif parse_task.result and parse_task.result.get('output_directory'):
+                output_dir = parse_task.result.get('output_directory')
+            if not output_dir:
+                raise ValueError(f"No output directory found for parse task {task_id}")
+            # 检查输出目录是否存在
+            if not os.path.exists(output_dir):
+                raise ValueError(f"Output directory does not exist: {output_dir}")
+        # 目录主任务无需校验output_directory
         
         # 创建向量存储任务ID
         vector_task_id = str(uuid.uuid4())
@@ -1120,7 +1166,6 @@ class VectorStoreBuilder:
         task_data = {
             'task_id': vector_task_id,
             'parse_task_id': task_id,
-
             'status': 'PENDING',
             'progress': 0,
             'config': task_config,

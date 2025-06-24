@@ -42,9 +42,9 @@ class UserDAO:
                 full_name=user_data.full_name,
                 is_superuser=getattr(user_data, 'is_superuser', False)
             )
-            
             db.add(user)
             db.flush()  # 刷新以获取ID，但不提交
+            db.commit()  # 新增：提交事务，确保写入数据库
             
             logger.info(f"Created new user: {user_data.username}")
             return user
@@ -107,11 +107,9 @@ class UserDAO:
                 settings.JWT_SECRET_KEY, 
                 algorithms=[settings.JWT_ALGORITHM]
             )
-            
             user_id = payload.get("user_id")
             if user_id is None:
                 return None
-                
             # 检查用户是否存在且活跃
             # 需要获取数据库会话
             from models.database import get_db
@@ -122,13 +120,11 @@ class UserDAO:
                     return None
             finally:
                 db.close()
-                
             return {
                 "user_id": user_id,
                 "username": payload.get("username"),
                 "exp": payload.get("exp")
             }
-            
         except jwt.ExpiredSignatureError:
             logger.warning("Token has expired")
             return None

@@ -9,7 +9,8 @@ from datetime import datetime
 from typing import Optional, List, Dict, Any
 from sqlalchemy.orm import Session
 from sqlalchemy import desc, and_, asc
-
+from config import settings
+from datetime import timedelta
 from models.chat_models import ChatSession, ChatMessage
 from models.database import get_db
 
@@ -465,8 +466,7 @@ class ChatDAO:
     @staticmethod
     def cleanup_expired_sessions() -> dict:
         """清理过期会话：30天软删除，180天硬删除"""
-        from ..config import settings
-        from datetime import timedelta
+       
         
         db_gen = None
         db = None

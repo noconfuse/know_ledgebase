@@ -8,7 +8,7 @@ from passlib.context import CryptContext
 
 from models.database import get_db
 from dao.user_dao import UserDAO
-from .schemas import UserCreate, UserLogin, UserResponse, Token, UserUpdate
+from .schemas import UserCreate, UserLogin, UserResponse, Token, UserUpdate, FreeLoginRequest
 from .dependencies import get_current_user, get_current_active_user
 from config import settings
 from common.response import success_response, error_response, ErrorCodes
@@ -252,4 +252,37 @@ async def delete_current_user(
        
     return success_response(
         message="删除用户账户成功"
+    )
+
+
+@router.post("/free_login")
+async def free_login(body: FreeLoginRequest, db: Session = Depends(get_db)) -> JSONResponse:
+    """免费令牌登录，前端传递免费token，后端校验后返回免费账户JWT"""
+    token = body.token
+    # 1. 校验token
+    if token != getattr(settings, "FREE_LOGIN_TOKEN", None):
+        return error_response(
+            message="无效的免费令牌",
+            error_code=ErrorCodes.INVALID_TOKEN,
+            status_code=401
+        )
+    # 2. 查找数据库中的 free_user
+    user = UserDAO.get_user_by_username(db, "free_user")
+    if not user or not user.is_active:
+        return error_response(
+            message="免费用户不存在或已被禁用，请联系管理员初始化数据库",
+            error_code=ErrorCodes.USER_NOT_FOUND,
+            status_code=500
+        )
+    user_response = UserResponse.model_validate(user)
+    # 3. 签发JWT
+    access_token = create_access_token(data={"sub": user.username, "user_id": str(user.id)})
+    # 4. 返回
+    return success_response(
+        data={
+            "access_token": access_token,
+            "token_type": "bearer",
+            "user": user_response.model_dump()
+        },
+        message="免费账户登录成功"
     )

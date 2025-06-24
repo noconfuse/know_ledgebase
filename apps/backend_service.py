@@ -40,8 +40,8 @@ task_dao = TaskDAO()
 class ParseConfig(BaseModel):
     """解析配置"""
     parser_type: Optional[str] = Field(default=None, description="解析器类型: 'docling' 或 'mineru'，默认使用系统配置")
-    ocr_enabled: Optional[bool] = Field(default=True, description="是否启用OCR")
-    ocr_languages: Optional[List[str]] = Field(default=["ch_sim", "en"], description="OCR语言")
+    ocr_enabled: Optional[bool] = Field(default=False, description="是否启用OCR")
+    ocr_languages: Optional[List[str]] = Field(default=[], description="OCR语言")
     extract_tables: Optional[bool] = Field(default=True, description="是否提取表格")
     extract_images: Optional[bool] = Field(default=True, description="是否提取图片信息")
     # save_to_file参数已移除，默认都保存到文件
@@ -266,6 +266,43 @@ async def parse_file_path(
         raise
     except Exception as e:
         logger.error(f"Error in parse_file_path: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/parse/directory", response_model=TaskResponse)
+async def parse_config(
+    directory_path: str,
+    config: Optional[ParseConfig] = None,
+    parser_type: Optional[str] = None
+):
+    """解析指定目录的文件"""
+    # 确保文件目录存在
+    if not Path(directory_path).exists():
+        raise HTTPException(status_code=404, detail="Directory not found")
+    
+    try:
+        # 转换配置
+        parse_config = config.dict() if config else {}
+        
+        # 从配置中获取parser_type，如果参数中没有指定的话
+        selected_parser_type = parser_type or parse_config.get("parser_type")
+        
+        # 启动解析任务
+        task_id = await document_parser.parse_directory(
+            directory_path,
+            parse_config,
+            parser_type=selected_parser_type
+        )
+        
+        return TaskResponse(
+            task_id=task_id,
+            status="pending",
+            message="Document parsing task created successfully"
+        )
+    
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error in parse_config: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 @app.get("/parse/status/{task_id}", response_model=TaskStatusResponse)

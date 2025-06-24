@@ -5,4 +5,9 @@ venv
 
 __pycache__
 
-upload
+uploads
+logs
+ouputs
+vector_stores
+outputs
+models_dir

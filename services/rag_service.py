@@ -21,6 +21,8 @@ from llama_index.core.tools import RetrieverTool, ToolMetadata
 from llama_index.core.selectors import (
     PydanticSingleSelector,
 )
+from llama_index.core.llms import LLM
+
 from llama_index.core.query_engine import RetrieverQueryEngine
 from llama_index.core.retrievers import RouterRetriever
 from llama_index.core.chat_engine import CondensePlusContextChatEngine,SimpleChatEngine
@@ -38,6 +40,7 @@ from common.postgres_vector_store import create_postgres_vector_store_builder, P
 from utils.logging_config import setup_logging
 from models import init_db
 from dao.chat_dao import ChatDAO
+from services.model_client_factory import ModelClientFactory
 
 setup_logging()
 logger = logging.getLogger(__name__)
@@ -292,6 +295,7 @@ class RAGService:
     
     _instance = None
     _initialized = False
+    llm: LLM = None
     
     def __new__(cls):
         if cls._instance is None:
@@ -324,27 +328,17 @@ class RAGService:
         try:
             # 设置全局Settings配置
             from llama_index.core import Settings
-            Settings.context_window = settings.LLM_CONTEXT_WINDOW
-            Settings.num_output = settings.LLM_NUM_OUTPUT
             
             # 初始化嵌入模型
-            self.embed_model = HuggingFaceEmbedding(
-                model_name=settings.EMBED_MODEL_PATH,
-                device=settings.GPU_DEVICE if settings.USE_GPU else "cpu",
-                trust_remote_code=True
-            )
+            self.embed_model = ModelClientFactory.create_embedding_client(settings.embedding_model_settings)
             
             # 初始化重排序模型
-            self.reranker = SentenceTransformerRerank(
-                model=settings.RERANK_MODEL_PATH,
-                top_n=settings.RERANK_TOP_K,
-                device=settings.GPU_DEVICE if settings.USE_GPU else "cpu"
-            )
+            self.reranker = ModelClientFactory.create_rerank_client(settings.rerank_model_settings)
             self.keyword_reranker = KeywordMetadataReranker() # Initialize custom reranker
             self.header_path_reranker = HeaderPathReranker() # Initialize header path reranker
             
             # 初始化LLM
-            self._setup_llm()
+            self.llm = ModelClientFactory.create_llm_client(settings.llm_model_settings)
             
             # 设置全局配置
             Settings.embed_model = self.embed_model
@@ -355,48 +349,7 @@ class RAGService:
         except Exception as e:
             logger.error(f"Failed to initialize RAG models: {e}")
             raise
-    
-    def _setup_llm(self):
-        """设置LLM"""
-        if settings.LLM_API_BASE and settings.LLM_API_KEY:
-            # 使用第三方API
-            llm_kwargs = {
-                "api_base": settings.LLM_API_BASE,
-                "api_key": settings.LLM_API_KEY,
-                "model": settings.LLM_MODEL_NAME,
-                "max_tokens": settings.LLM_MAX_TOKENS,
-                "temperature": settings.LLM_TEMPERATURE,
-                "context_window": settings.LLM_CONTEXT_WINDOW,
-                "is_chat_model": True,
-                "timeout": 60.0,  # 添加超时设置
-                "max_retries": 3,   # 添加重试设置
-                "is_function_calling_model": True
-            }
-            
-            # 只有当api_version不为空时才添加
-            if settings.LLM_API_VERSION:
-                llm_kwargs["api_version"] = settings.LLM_API_VERSION
-            
-            self.llm = OpenAILike(**llm_kwargs)
-            logger.info(f"Using external LLM API: {settings.LLM_API_BASE} with model: {settings.LLM_MODEL_NAME}")
-            logger.info(f"LLM config - max_tokens: {settings.LLM_MAX_TOKENS}, temperature: {settings.LLM_TEMPERATURE}")
-        else:
-            # 使用本地模型
-            self.llm = HuggingFaceLLM(
-                model_name=settings.LLM_MODEL_PATH,
-                device_map="auto" if settings.USE_GPU else None,
-                model_kwargs={
-                    "torch_dtype": "auto",
-                    "trust_remote_code": True
-                },
-                tokenizer_kwargs={
-                    "trust_remote_code": True
-                },
-                max_new_tokens=settings.LLM_MAX_TOKENS,
-                temperature=settings.LLM_TEMPERATURE
-            )
-            logger.info(f"Using local LLM: {settings.LLM_MODEL_PATH}")
-
+   
     def _auto_load_vector_store_indexes(self):
         """自动加载所有vector_store表的索引"""
         try:
@@ -593,7 +546,7 @@ class RAGService:
                         retrievers=[vector_retriever, bm25_retriever],
                         similarity_top_k=top_k,
                         num_queries=3,  # 生成3个查询变体
-                        mode="reciprocal_rerank"
+                        mode="reciprocal_rerank",
                     )
                     
                     # 执行检索
@@ -631,6 +584,8 @@ class RAGService:
             return filtered_nodes
             
         except Exception as e:
+            import traceback
+            traceback.print_exc()
             logger.error(f"Error in hybrid retrieve: {e}")
             raise
     

@@ -62,7 +62,6 @@ pip install -r requirements.txt
 创建 `.env` 文件：
 ```bash
 # 模型路径配置
-MODEL_BASE_DIR=/path/to/your/models
 KNOWLEDGE_BASE_DIR=/path/to/your/knowledge_base
 
 # LLM API 配置 (可选)
@@ -70,11 +69,6 @@ LLM_API_BASE=https://api.openai.com/v1
 LLM_API_KEY=your_api_key
 ```
 
-### 5. 下载模型
-确保以下模型已下载到 `MODEL_BASE_DIR`：
-- `gte-base-zh` (嵌入模型)
-- `bge-reranker-large` (重排序模型)
-- `internlm2_5-1_8b-chat` (LLM模型，如使用本地模型)
 
 ## 🚀 快速启动
 
@@ -238,7 +232,6 @@ know_ledgebase/
 
 ### 主要配置项
 
-- `MODEL_BASE_DIR`: 模型文件目录
 - `KNOWLEDGE_BASE_DIR`: 知识库数据目录
 - `USE_GPU`: 是否使用 GPU
 - `OCR_ENABLED`: 是否启用 OCR

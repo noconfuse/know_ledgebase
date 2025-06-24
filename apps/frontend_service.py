@@ -383,40 +383,39 @@ async def chat_stream(
 ):
     """流式聊天"""
     try:
+        # 自动创建会话：如果 session_id 不存在，自动创建
+        session_info = rag_service.get_session_info(request.session_id, current_user["id"])
+        if not session_info:
+            # 自动创建会话，index_ids 使用所有已加载索引
+            all_indexes = rag_service.get_loaded_indexes()
+            await rag_service.create_chat_session(
+                user_id=current_user["id"],
+                index_ids=all_indexes,
+                session_id=request.session_id,
+                load_history=False
+            )
         async def generate_response():
             async for token in rag_service.chat_stream(
                 session_id=request.session_id,
                 message=request.message,
                 user_id=current_user["id"]
             ):
-                # 使用Server-Sent Events格式
                 yield f"data: {json.dumps({'token': token})}\n\n"
-            
-            # After all tokens are streamed, try to get source_nodes
             source_nodes = []
             try:
                 if request.session_id in rag_service.sessions:
                     session_obj = rag_service.sessions[request.session_id]
-                    # Assuming 'last_source_nodes' is an attribute on the session object,
-                    # populated by RAGService after a stream.
                     if hasattr(session_obj, 'last_source_nodes'):
                         retrieved_nodes = getattr(session_obj, 'last_source_nodes')
                         if retrieved_nodes is not None and isinstance(retrieved_nodes, list):
                             source_nodes = retrieved_nodes
                         elif retrieved_nodes is not None:
                             logger.warning(f"last_source_nodes for session {request.session_id} is not a list, type: {type(retrieved_nodes)}")
-                            
             except Exception as e_sources:
                 logger.error(f"Error retrieving source_nodes for stream session {request.session_id}: {str(e_sources)}")
-                # source_nodes remains []
-
-            # Yield source_nodes if any
             if source_nodes:
                 yield f"data: {json.dumps({'source_nodes': source_nodes})}\n\n"
-            
-            # 发送结束标记
             yield f"data: {json.dumps({'done': True})}\n\n"
-        
         return StreamingResponse(
             generate_response(),
             media_type="text/plain",
@@ -426,7 +425,6 @@ async def chat_stream(
                 "Content-Type": "text/event-stream"
             }
         )
-        
     except Exception as e:
         logger.error(f"Error in streaming chat: {e}")
         return error_response(
