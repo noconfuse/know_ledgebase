@@ -6,7 +6,7 @@
 
 import logging
 from typing import Optional, List, Dict, Any
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, joinedload
 from sqlalchemy.exc import SQLAlchemyError
 from datetime import datetime
 
@@ -29,32 +29,22 @@ class TaskDAO:
     
     # ==================== 解析任务相关操作 ====================
     
-    def create_parse_task(self, task_data: Dict[str, Any]) -> Optional[ParseTask]:
+    def create_parse_task(self, parse_task: ParseTask) -> Optional[ParseTask]:
         """创建解析任务"""
         try:
             db = self._get_session()
             
-            parse_task = ParseTask(
-                task_id=task_data['task_id'],
-                file_path=task_data['file_path'],
-                file_name=task_data.get('file_name', ''),
-                file_size=task_data.get('file_size'),
-                file_extension=task_data.get('file_extension'),
-                mime_type=task_data.get('mime_type'),
-                parser_type=task_data.get('parser_type'),
-                status=task_data.get('status', 'PENDING'),
-                progress=task_data.get('progress', 0),
-                current_stage=task_data.get('current_stage'),
-                stage_details=task_data.get('stage_details', {}),
-                config=task_data.get('config', {}),
-                processing_logs=task_data.get('processing_logs', [])
-            )
-            
             db.add(parse_task)
+            
+            # 如果有子任务，也一并添加
+            if hasattr(parse_task, 'subtasks') and parse_task.subtasks:
+                for subtask in parse_task.subtasks:
+                    db.add(subtask)
+            
             db.commit()
             db.refresh(parse_task)
             
-            logger.info(f"创建解析任务成功: {task_data['task_id']}")
+            logger.info(f"创建解析任务成功: {parse_task.task_id}")
             return parse_task
             
         except SQLAlchemyError as e:
@@ -70,7 +60,12 @@ class TaskDAO:
         """获取解析任务"""
         try:
             db = self._get_session()
-            task = db.query(ParseTask).filter(ParseTask.task_id == task_id).first()
+            task = (
+                db.query(ParseTask)
+                .options(joinedload(ParseTask.subtasks))
+                .filter(ParseTask.task_id == task_id)
+                .first()
+            )
             return task
         except SQLAlchemyError as e:
             logger.error(f"获取解析任务失败: {e}")
@@ -101,6 +96,8 @@ class TaskDAO:
             return True
             
         except SQLAlchemyError as e:
+            import traceback
+            traceback.print_exc()
             logger.error(f"更新解析任务失败: {e}")
             if not self.db:
                 db.rollback()
@@ -149,6 +146,19 @@ class TaskDAO:
             if not self.db:
                 db.rollback()
             return False
+        finally:
+            if not self.db:
+                db.close()
+
+    def get_all_parse_tasks(self) -> List[ParseTask]:
+        """获取所有解析任务"""
+        try:
+            db = self._get_session()
+            tasks = db.query(ParseTask).all()
+            return tasks
+        except SQLAlchemyError as e:
+            logger.error(f"获取所有解析任务失败: {e}")
+            return []
         finally:
             if not self.db:
                 db.close()
@@ -268,6 +278,61 @@ class TaskDAO:
             
         except SQLAlchemyError as e:
             logger.error(f"删除向量化任务失败: {e}")
+            if not self.db:
+                db.rollback()
+            return False
+        finally:
+            if not self.db:
+                db.close()
+    
+    def get_subtasks_by_parent(self, parent_task_id: str) -> List[ParseTask]:
+        """根据父任务ID获取所有子任务"""
+        try:
+            db = self._get_session()
+            
+            # 先获取父任务
+            parent_task = db.query(ParseTask).filter(ParseTask.task_id == parent_task_id).first()
+            if not parent_task:
+                logger.warning(f"父任务不存在: {parent_task_id}")
+                return []
+            
+            # 获取所有子任务
+            subtasks = db.query(ParseTask).filter(ParseTask.parent_task_id == parent_task.id).all()
+            return subtasks
+            
+        except SQLAlchemyError as e:
+            logger.error(f"获取子任务失败: {e}")
+            return []
+        finally:
+            if not self.db:
+                db.close()
+    
+    def add_subtask_to_parent(self, parent_task_id: str, subtask_id: str) -> bool:
+        """将子任务添加到父任务"""
+        try:
+            db = self._get_session()
+            
+            # 获取父任务和子任务
+            parent_task = db.query(ParseTask).filter(ParseTask.task_id == parent_task_id).first()
+            subtask = db.query(ParseTask).filter(ParseTask.task_id == subtask_id).first()
+            
+            if not parent_task:
+                logger.error(f"父任务不存在: {parent_task_id}")
+                return False
+                
+            if not subtask:
+                logger.error(f"子任务不存在: {subtask_id}")
+                return False
+            
+            # 设置父子关系
+            subtask.parent_task_id = parent_task.id
+            
+            db.commit()
+            logger.info(f"成功建立父子任务关系: {parent_task_id} -> {subtask_id}")
+            return True
+            
+        except SQLAlchemyError as e:
+            logger.error(f"建立父子任务关系失败: {e}")
             if not self.db:
                 db.rollback()
             return False

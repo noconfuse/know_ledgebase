@@ -491,21 +491,7 @@ class MinerUDocumentParser:
     def _save_task_to_db(self, task: ParseTask):
         """保存任务到数据库"""
         try:
-            task_data = {
-                'task_id': task.task_id,
-                'file_path': task.file_path,
-                'file_name': task.file_name,
-                'file_size': task.file_size,
-                'file_extension': task.file_extension,
-                'parser_type': 'mineru',
-                'status': task.status,
-                'progress': task.progress,
-                'current_stage': task.current_stage,
-                'stage_details': task.stage_details,
-                'config': task.config,
-                'processing_logs': task.processing_logs
-            }
-            self.task_dao.create_parse_task(task_data)
+            self.task_dao.create_parse_task(task)
             logger.debug(f"任务 {task.task_id} 已保存到数据库")
         except Exception as e:
             logger.error(f"保存任务到数据库失败: {e}")

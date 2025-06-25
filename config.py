@@ -62,10 +62,11 @@ class Settings(BaseSettings):
     # 文档解析配置
     MAX_FILE_SIZE: int = 100 * 1024 * 1024  # 100MB
     SUPPORTED_FORMATS: List[str] = [".pdf", ".docx", ".doc", ".txt", ".md", ".html", ".pptx", ".xlsx"]
+    SUPPORTED_PARSER_TYPES: List[str] = ["docling", "mineru"]
+    DEFAULT_PARSER_TYPE: str = "docling"  # 默认解析器类型: "docling" 或 "mineru"
     PARSE_TIMEOUT: int = 300  # 5分钟
     
     # 解析器类型配置
-    DEFAULT_PARSER_TYPE: str = "docling"  # 默认解析器类型: "docling" 或 "mineru"
     
     MINERU_MAX_WORKERS: int = 1  # MinerU并发处理数量
     MINERU_API_TIMEOUT: int = 300 # seconds
@@ -79,7 +80,7 @@ class Settings(BaseSettings):
     OCR_ENABLED: bool = False
     OCR_LANGUAGES: List[str] = ["chi_sim", "eng"]
     OCR_GPU_MEMORY: int = 2048  # MB
-    OCR_BACKEND: str = "rapidorc"  # 支持 easyocr, tesseract, rapidocr
+    OCR_TYPE: str = "rapidorc"  # 支持 easyocr, tesseract, rapidocr
     
     # 向量数据库配置
     VECTOR_STORE_TYPE: str = "postgres"  # faiss, chroma, postgres

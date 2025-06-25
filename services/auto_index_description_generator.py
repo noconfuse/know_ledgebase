@@ -19,39 +19,9 @@ logger = logging.getLogger(__name__)
 class IndexDescription(BaseModel):
     """索引描述模型"""
     
-    title: str = Field(
-        ...,
-        description="索引的简洁标题，概括索引的主要内容领域"
-    )
-    
     description: str = Field(
         ...,
         description="详细的索引描述，说明索引包含的内容类型、适用场景和主要特点"
-    )
-    
-    content_summary: str = Field(
-        ...,
-        description="内容摘要，概括索引中文档的主要内容和覆盖范围"
-    )
-    
-    key_topics: List[str] = Field(
-        ...,
-        description="主要话题列表，提取索引中最重要的5-8个主题"
-    )
-    
-    document_types: List[str] = Field(
-        ...,
-        description="文档类型列表，说明索引包含的文档类型"
-    )
-    
-    target_users: List[str] = Field(
-        ...,
-        description="目标用户群体，说明哪些用户群体会使用这个索引"
-    )
-    
-    use_cases: List[str] = Field(
-        ...,
-        description="使用场景列表，说明索引的典型应用场景"
     )
 
 
@@ -69,7 +39,7 @@ class AutoIndexDescriptionGenerator:
         
         # 描述生成模板
         self.description_template = """
-基于以下索引的内容分析，请生成一个全面的索引描述。
+基于以下索引的内容分析，请生成一个简洁而全面的索引描述。
 
 索引统计信息：
 - 文档数量：{doc_count}
@@ -86,24 +56,12 @@ class AutoIndexDescriptionGenerator:
 样本标题：
 {sample_titles}
 
-请根据以上信息生成：
-
-1. **标题**：一个简洁的索引标题，概括索引的主要内容领域
-
-2. **描述**：详细的索引描述（100-200字），说明：
-   - 索引包含的内容类型和范围
-   - 适用的场景和用途
-   - 主要特点和优势
-
-3. **内容摘要**：简洁的内容摘要（50-100字），概括索引中文档的主要内容
-
-4. **主要话题**：提取5-8个最重要的主题关键词
-
-5. **文档类型**：列出索引包含的主要文档类型
-
-6. **目标用户**：确定主要的目标用户群体
-
-7. **使用场景**：列出3-5个典型的使用场景
+请根据以上信息生成一个详细的索引描述（150-300字），说明：
+- 索引包含的内容类型和范围
+- 涵盖的主要话题和领域
+- 适用的场景和用途
+- 主要特点和优势
+- 目标用户群体
 
 请确保描述准确、专业且易于理解。
 """
@@ -283,28 +241,9 @@ class AutoIndexDescriptionGenerator:
                 sample_titles=formatted_analysis['sample_titles']
             )
             
-            # 转换为JSON格式
-            description_dict = {
-                'title': description_result.title,
-                'description': description_result.description,
-                'content_summary': description_result.content_summary,
-                'key_topics': description_result.key_topics,
-                'document_types': description_result.document_types,
-                'target_users': description_result.target_users,
-                'use_cases': description_result.use_cases,
-                'statistics': {
-                    'document_count': analysis['doc_count'],
-                    'node_count': analysis['node_count'],
-                    'top_keywords': analysis['top_keywords'][:10],
-                    'document_type_distribution': analysis['doc_types'],
-                    'legal_domain_distribution': analysis['legal_domains']
-                }
-            }
-            
-            description_json = json.dumps(description_dict, ensure_ascii=False, indent=2)
-            
+            # 直接返回description字符串
             logger.info("Index description generated successfully")
-            return description_json
+            return description_result.description
             
         except Exception as e:
             logger.error(f"Error generating index description: {str(e)}")
@@ -313,21 +252,29 @@ class AutoIndexDescriptionGenerator:
     
     def _generate_fallback_description(self, analysis: Dict[str, Any]) -> str:
         """生成备用描述"""
-        fallback_description = {
-            'title': '知识库索引',
-            'description': f'该索引包含{analysis["doc_count"]}个文档，{analysis["node_count"]}个文本节点，涵盖多个法律领域的内容。',
-            'content_summary': '包含法律条文、司法解释、案例分析等多种类型的法律文档。',
-            'key_topics': analysis['top_keywords'][:5] if analysis['top_keywords'] else ['法律', '条文', '规定'],
-            'document_types': list(analysis['doc_types'].keys()) if analysis['doc_types'] else ['法律文档'],
-            'target_users': ['律师', '法务人员', '法律学生', '普通公民'],
-            'use_cases': ['法律咨询', '案例研究', '合规检查', '法律学习'],
-            'statistics': {
-                'document_count': analysis['doc_count'],
-                'node_count': analysis['node_count'],
-                'top_keywords': analysis['top_keywords'][:10],
-                'document_type_distribution': analysis['doc_types'],
-                'legal_domain_distribution': analysis['legal_domains']
-            }
-        }
+        doc_count = analysis.get('doc_count', 0)
+        node_count = analysis.get('node_count', 0)
+        top_keywords = analysis.get('top_keywords', [])
+        doc_types = analysis.get('doc_types', {})
+        legal_domains = analysis.get('legal_domains', {})
         
-        return json.dumps(fallback_description, ensure_ascii=False, indent=2)
+        # 构建简单的描述文本
+        description_parts = [
+            f"该知识库索引包含{doc_count}个文档和{node_count}个文本节点",
+        ]
+        
+        if top_keywords:
+            keywords_str = '、'.join(top_keywords[:5])
+            description_parts.append(f"主要涵盖{keywords_str}等主题")
+        
+        if doc_types:
+            types_str = '、'.join(list(doc_types.keys())[:3])
+            description_parts.append(f"包含{types_str}等类型的文档")
+        
+        if legal_domains:
+            domains_str = '、'.join(list(legal_domains.keys())[:3])
+            description_parts.append(f"涉及{domains_str}等法律领域")
+        
+        description_parts.append("适用于法律咨询、案例研究、合规检查等多种应用场景，为律师、法务人员、法律学生等用户提供专业的法律知识检索服务")
+        
+        return '，'.join(description_parts) + '。'

@@ -307,7 +307,7 @@ class SmartMetadataExtractor(BaseExtractor):
         # 按文档分组处理
         nodes_by_doc = {}
         for node in nodes:
-            doc_id = node.metadata.get("file_path", "unknown")
+            doc_id = node.metadata.get("original_file_path", "unknown")
             if doc_id not in nodes_by_doc:
                 nodes_by_doc[doc_id] = []
             nodes_by_doc[doc_id].append(node)

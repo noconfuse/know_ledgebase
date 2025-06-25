@@ -21,6 +21,7 @@ from common.exception_handler import setup_exception_handlers
 from utils.logging_config import setup_logging, get_logger
 from services.vector_store_builder import vector_store_builder
 from services.document_parser import document_parser
+from services.directory_vectorizer import DirectoryVectorizer
 from dao.index_dao import IndexDAO
 from dao.chat_dao import ChatDAO
 from dao.task_dao import TaskDAO
@@ -35,6 +36,9 @@ logger = get_logger(__name__)
 index_dao = IndexDAO()
 chat_dao = ChatDAO()
 task_dao = TaskDAO()
+
+# 初始化服务
+directory_vectorizer = DirectoryVectorizer(vector_store_builder)
 
 # Pydantic模型
 class ParseConfig(BaseModel):
@@ -84,6 +88,10 @@ class TaskStatusResponse(BaseModel):
     file_info: Optional[Dict[str, Any]] = None
     processing_logs: Optional[List[Dict[str, Any]]] = None
     parser_type: Optional[str] = None
+
+class VectorizeDirectoryRequest(BaseModel):
+    directory_path: str
+    enhancement_config: Optional[Dict] = None
 
 # 生命周期管理
 @asynccontextmanager
@@ -172,6 +180,28 @@ async def health_check() -> JSONResponse:
         message="服务健康状态正常"
     )
 
+@app.post("/vectorize/directory", response_model=TaskResponse)
+async def vectorize_directory_endpoint(request: VectorizeDirectoryRequest, background_tasks: BackgroundTasks):
+    """Vectorize a directory of documents."""
+    if not os.path.isdir(request.directory_path):
+        raise HTTPException(status_code=400, detail="Invalid directory path")
+
+    task_id = f"vectorize-dir-{datetime.now().strftime('%Y%m%d%H%M%S')}-{os.path.basename(request.directory_path)}"
+    
+    background_tasks.add_task(
+        directory_vectorizer.vectorize_directory, 
+        request.directory_path, 
+        request.enhancement_config
+    )
+    
+    return success_response(
+        data={
+            "task_id": task_id,
+            "status": "pending",
+            "message": "Directory vectorization task started."
+        }
+    )
+
 @app.post("/parse/upload", response_model=TaskResponse)
 async def parse_uploaded_file(
     file: UploadFile = File(...),
@@ -235,7 +265,6 @@ async def parse_uploaded_file(
 async def parse_file_path(
     file_path: str,
     config: Optional[ParseConfig] = None,
-    parser_type: Optional[str] = None
 ):
     """解析指定路径的文件"""
     try:
@@ -246,14 +275,10 @@ async def parse_file_path(
         # 转换配置
         parse_config = config.dict() if config else {}
         
-        # 从配置中获取parser_type，如果参数中没有指定的话
-        selected_parser_type = parser_type or parse_config.get("parser_type")
-        
         # 启动解析任务
         task_id = await document_parser.parse_document(
             file_path,
             parse_config,
-            parser_type=selected_parser_type
         )
         
         return TaskResponse(
@@ -265,6 +290,8 @@ async def parse_file_path(
     except HTTPException:
         raise
     except Exception as e:
+        import traceback
+        traceback.print_exc()
         logger.error(f"Error in parse_file_path: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
@@ -272,7 +299,6 @@ async def parse_file_path(
 async def parse_config(
     directory_path: str,
     config: Optional[ParseConfig] = None,
-    parser_type: Optional[str] = None
 ):
     """解析指定目录的文件"""
     # 确保文件目录存在
@@ -283,14 +309,10 @@ async def parse_config(
         # 转换配置
         parse_config = config.dict() if config else {}
         
-        # 从配置中获取parser_type，如果参数中没有指定的话
-        selected_parser_type = parser_type or parse_config.get("parser_type")
-        
         # 启动解析任务
         task_id = await document_parser.parse_directory(
             directory_path,
             parse_config,
-            parser_type=selected_parser_type
         )
         
         return TaskResponse(
@@ -309,7 +331,7 @@ async def parse_config(
 async def get_parse_status(task_id: str):
     """获取解析任务状态"""
     try:
-        task_status = document_parser.get_task_status(task_id)
+        task_status = document_parser.get_task(task_id)
         if not task_status:
             raise HTTPException(status_code=404, detail="Task not found")
         
@@ -340,7 +362,7 @@ async def build_vector_store(
     """从解析任务构建向量数据库"""
     try:
         # 验证解析任务是否存在
-        parse_task = document_parser.get_task_status(parse_task_id)
+        parse_task = document_parser.get_task(parse_task_id)
         if not parse_task:
             raise HTTPException(status_code=404, detail="Parse task not found")
         
@@ -459,32 +481,6 @@ async def get_all_vector_store_tasks():
         logger.error(f"Error in get_all_vector_store_tasks: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
-@app.get("/parse/logs/{task_id}")
-async def get_task_logs(task_id: str, limit: int = 50):
-    """获取任务处理日志"""
-    try:
-        task_status = document_parser.get_task_status(task_id)
-        if not task_status:
-            raise HTTPException(status_code=404, detail="Task not found")
-        
-        processing_logs = task_status.get("processing_logs", [])
-        
-        # 限制返回的日志数量
-        if limit > 0:
-            processing_logs = processing_logs[-limit:]
-        
-        return {
-            "task_id": task_id,
-            "logs": processing_logs,
-            "total_logs": len(task_status.get("processing_logs", [])),
-            "returned_logs": len(processing_logs)
-        }
-        
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.error(f"Error in get_task_logs: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
 
 @app.get("/logs/download")
 async def download_log_file(log_type: str = "main", date: Optional[str] = None):

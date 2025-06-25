@@ -442,7 +442,7 @@ async def get_session_info(
     try:
         session_info = rag_service.get_session_info(session_id, current_user["id"])
         if not session_info:
-            return error_response(
+            return success_response(
                 message="会话未找到",
                 error_code=ErrorCodes.INDEX_NOT_FOUND,
                 status_code=404
@@ -565,10 +565,12 @@ async def get_chat_history(
     try:
         history = rag_service.get_chat_history(session_id, current_user["id"], limit)
         if history is None:
-            return error_response(
+            return success_response(
                 message="会话未找到",
-                error_code=ErrorCodes.INDEX_NOT_FOUND,
-                status_code=404
+                data={
+                    "session_id": session_id,
+                    "history": [],
+                }
             )
         
         return success_response(

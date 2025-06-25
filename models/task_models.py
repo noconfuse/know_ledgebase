@@ -10,7 +10,7 @@ from typing import Optional, Dict, Any, List
 from sqlalchemy import Column, String, DateTime, Text, Integer, JSON, Boolean, Float, ForeignKey
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.dialects.postgresql import UUID
-from sqlalchemy.orm import relationship
+from sqlalchemy.orm import relationship, backref
 
 Base = declarative_base()
 
@@ -53,6 +53,18 @@ class ParseTask(Base):
     
     # 关联的向量化任务
     vector_tasks = relationship("VectorStoreTask", back_populates="parse_task")
+
+    # 子任务列表，通过parent_task_id关联
+    subtasks = relationship("ParseTask", 
+                          backref=backref("parent_task", remote_side=[id]),
+                          foreign_keys="ParseTask.parent_task_id",
+                          cascade="all, delete-orphan")
+    
+    # 父任务ID，如果为空则表示这是顶层任务
+    parent_task_id = Column(UUID(as_uuid=True), 
+                           ForeignKey('parse_tasks.id', ondelete='CASCADE'), 
+                           nullable=True,
+                           index=True)
     
     def __repr__(self):
         return f"<ParseTask(task_id='{self.task_id}', status='{self.status}', file_name='{self.file_name}')>"
@@ -72,10 +84,10 @@ class ParseTask(Base):
             "progress": self.progress,
             "current_stage": self.current_stage,
             "stage_details": self.stage_details,
-            "created_at": self.created_at.timestamp() if self.created_at else 0.0,
-            "started_at": self.started_at.timestamp() if self.started_at else None,
-            "completed_at": self.completed_at.timestamp() if self.completed_at else None,
-            "updated_at": self.updated_at.timestamp() if self.updated_at else None,
+            "created_at": self.created_at,
+            "started_at": self.started_at,
+            "completed_at": self.completed_at,
+            "updated_at": self.updated_at,
             "result": self.result,
             "error": self.error,
             "processing_logs": self.processing_logs,
@@ -136,10 +148,10 @@ class VectorStoreTask(Base):
 
             "status": self.status,
             "progress": self.progress,
-            "created_at": self.created_at.timestamp() if self.created_at else 0.0,
-            "started_at": self.started_at.timestamp() if self.started_at else None,
-            "completed_at": self.completed_at.timestamp() if self.completed_at else None,
-            "updated_at": self.updated_at.timestamp() if self.updated_at else None,
+            "created_at": self.created_at,
+            "started_at": self.started_at,
+            "completed_at": self.completed_at,
+            "updated_at": self.updated_at,
             "result": self.result,
             "error": self.error,
             "processed_files": self.processed_files,
