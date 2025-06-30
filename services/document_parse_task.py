@@ -87,6 +87,9 @@ class DocumentParseTask:
 
         task_id = str(uuid.uuid4())
 
+        # 计算任务深度
+        task_depth = (parent_task.depth + 1) if parent_task else 0
+        
         parse_task = ParseTask(
             task_id=task_id,
             file_path=file_path,
@@ -97,7 +100,8 @@ class DocumentParseTask:
             mime_type=mimetypes.guess_type(file_path)[0],
             status=TaskStatus.PENDING,
             config=config,
-            parent_task_id=parent_task.id if parent_task else None
+            parent_task_id=parent_task.id if parent_task else None,
+            depth=task_depth
         )
         
         # 保存到数据库
@@ -114,7 +118,6 @@ class DocumentParseTask:
     def __init__(self, task_id: str) -> None:
         self.task_id = task_id
         self.task_dao = TaskDAO()
-        print(task_id,'task_id')
         self.task = self.task_dao.get_parse_task(task_id)
         pass
 

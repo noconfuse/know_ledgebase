@@ -1,3 +1,5 @@
+import asyncio
+import hashlib
 import os
 import requests
 from pathlib import Path
@@ -7,7 +9,6 @@ from llama_index.core import Document
 
 from config import settings
 from models.task_models import ParseTask
-from services.docling_parser import DoclingParser
 from utils.logging_config import get_logger
 from services.base_document_processor import BaseDocumentProcessor
 
@@ -75,11 +76,26 @@ class DocumentHTMLProcessor(BaseDocumentProcessor):
 
             if should_process and local_filename:
                 try:
-                    sub_md_content = self._parse_file_to_markdown(str(local_filename), task.config)
-                    sub_md_path = output_dir / f"{Path(local_filename).stem}.md"
-                    with open(sub_md_path, "w", encoding="utf-8") as f:
-                        f.write(sub_md_content)
-                    a["href"] = str(sub_md_path.relative_to(output_dir))
+                    # 解析链接文件并获取markdown文件路径
+                    sub_md_path = self._parse_local_file(str(local_filename), task)
+                    if sub_md_path:
+                        # 计算相对于当前HTML输出目录的相对路径
+                        sub_md_path_obj = Path(sub_md_path)
+                        if sub_md_path_obj.exists():
+                            # 如果markdown文件在子任务的输出目录中，需要计算相对路径
+                            try:
+                                # 获取父目录(settings.OUTPUT_DIR)
+                                parent_dir = output_dir.parent
+                                # 计算从父目录开始的相对路径
+                                relative_path = sub_md_path_obj.relative_to(parent_dir)
+                                a["href"] = f"../{relative_path}"
+                            except ValueError:
+                                # 如果不在同一目录树下，使用文件名
+                                a["href"] = sub_md_path_obj.name
+                        else:
+                            logger.warning(f"解析生成的markdown文件不存在: {sub_md_path}")
+                    else:
+                        logger.warning(f"未能获取解析后的markdown文件路径: {local_filename}")
                 except Exception as e:
                     logger.warning(f"docling解析超链接文件失败: {local_filename}, {e}")
                     continue
@@ -93,14 +109,52 @@ class DocumentHTMLProcessor(BaseDocumentProcessor):
         task.output_directory = str(output_dir)
         return {"title": task.file_name, "html_path": str(html_out_path)}
 
-    def _parse_file_to_markdown(self, file_path: str, config: dict = None) -> str:
-        """辅助函数：用docling解析单个文件为markdown，返回markdown内容"""
-        docling_parser = DoclingParser()
-        docling_parser.setup_converter(config)
-        result = docling_parser.parse_file(file_path)
-        document = result.document
-        markdown_content = document.export_to_markdown()
-        return markdown_content
+    def _parse_local_file(self, file_path: str, task: ParseTask) -> str:
+        """辅助函数：用docling解析单个文件，返回生成的输出文件路径
+        
+        注意：此方法在线程池中同步执行，不需要再次使用线程池
+        
+        Returns:
+            str: 生成的输出文件的绝对路径，如果解析失败则返回None
+        """
+        try:
+            from services.document_parse_task import DocumentParseTask
+            # 检查递归深度限制，最多允许3层（0, 1, 2）
+            if task.depth >= 2:
+                logger.warning(f"任务深度已达到限制 (当前深度: {task.depth})，跳过文件 {file_path} 的递归解析")
+                return None
+            
+            # 构建子任务来处理
+            sub_task = DocumentParseTask.create_parse_task(file_path, task.config, task)
+            logger.info(f"创建子任务 {sub_task.task_id}，深度: {sub_task.depth}，处理文件: {file_path}")
+            
+            document_parse_task = DocumentParseTask(sub_task.task_id)
+            
+            # 直接同步执行解析任务，因为当前已经在线程池中执行
+            document_parse_task.execute_parse_task()
+            
+            # 根据统一的路径规则构建输出目录路径
+            sub_output_dir = os.path.join(settings.OUTPUT_DIR, sub_task.task_id)
+            
+            # 如果结果中没有对应路径，尝试从输出目录查找
+            if os.path.exists(sub_output_dir):
+                # 根据文件扩展名确定输出文件扩展名
+                output_ext = '.html' if sub_task.file_extension in ['.html', '.htm'] else '.md'
+                
+                # 构建输出文件路径
+                base_name = os.path.splitext(sub_task.file_name)[0]
+                output_path = os.path.join(sub_output_dir, f"{base_name}{output_ext}")
+                
+                if os.path.exists(output_path):
+                    return output_path
+            
+            # 如果没有找到，记录警告并返回None
+            logger.warning(f"未能找到文件 {file_path} 解析生成的输出文件")
+            return None
+                
+        except Exception as e:
+            logger.error(f"解析文件 {file_path} 时发生错误: {str(e)}")
+            return None
 
     def collect_document(self, parse_task: ParseTask):
         """收集解析任务的文档（只处理子任务）
@@ -116,10 +170,6 @@ class DocumentHTMLProcessor(BaseDocumentProcessor):
         # 校验任务状态
         if parse_task.status != TaskStatus.COMPLETED:
             raise ValueError(f"Parse task {parse_task.task_id} is not completed.")
-
-        # 只处理子任务
-        if parse_task.subtasks:
-            raise ValueError(f"HTMLProcessor.collect_document should only process subtasks, not main tasks")
         
         documents = []
         logger.info(f"Processing HTML subtask {parse_task.task_id}")
@@ -139,6 +189,7 @@ class DocumentHTMLProcessor(BaseDocumentProcessor):
                 # LlamaIndex Document for the main HTML
                 with open(main_html_path, 'r', encoding='utf-8') as f:
                     html_content = f.read()
+                    content_md5 = hashlib.md5(html_content.encode('utf-8')).hexdigest()
                 metadata = {
                     "source_file": str(main_html_path),
                     "original_file_path": parse_task.file_path,
@@ -146,12 +197,13 @@ class DocumentHTMLProcessor(BaseDocumentProcessor):
                     'file_type': '.html',
                     'mime_type': parse_task.mime_type
                 }
-                doc = Document(text=html_content, metadata=metadata)
+                doc = Document(text=html_content, metadata=metadata,doc_id=content_md5)
                 documents.append(doc)
 
             # 收集所有生成的Markdown文件
             for md_file in output_dir.glob("*.md"):
                 content = md_file.read_text(encoding='utf-8')
+                content_md5 = hashlib.md5(content.encode('utf-8')).hexdigest()
                 metadata = {
                     "source_file": str(md_file),
                     "original_file_path": parse_task.file_path, # 指向原始的HTML文件
@@ -159,7 +211,8 @@ class DocumentHTMLProcessor(BaseDocumentProcessor):
                     'file_type': '.md',
                     'mime_type': parse_task.mime_type
                 }
-                doc = Document(text=content, metadata=metadata)
+
+                doc = Document(text=content, metadata=metadata,doc_id=content_md5)
                 documents.append(doc)
                 
         except Exception as e:

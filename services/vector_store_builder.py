@@ -16,19 +16,16 @@ from common.custom_markdown_node_parser import (
     CustomMarkdownNodeParser as MarkdownNodeParser,
 )
 from llama_index.node_parser.docling import DoclingNodeParser
-from llama_index.core.extractors import (
-    TitleExtractor,
-    KeywordExtractor,
-    SummaryExtractor,
-    QuestionsAnsweredExtractor,
-)
+from services.smart_metadata_extractor import SmartMetadataExtractor
 from llama_index.core.ingestion import IngestionPipeline
 from llama_index.vector_stores.faiss import FaissVectorStore
 from llama_index.vector_stores.postgres import PGVectorStore
 from llama_index.embeddings.huggingface import HuggingFaceEmbedding
 from llama_index.llms.huggingface import HuggingFaceLLM
 from llama_index.llms.openai_like import OpenAILike
-import faiss
+
+# 使用已导入的SessionLocal
+from dao.index_dao import IndexDAO
 
 from config import settings
 from models.database import get_db, SessionLocal
@@ -37,7 +34,7 @@ from services.document_html_processor import DocumentHTMLProcessor
 from services.document_parser import document_parser, TaskStatus
 from common.postgres_vector_store import create_postgres_vector_store_builder
 from dao.task_dao import TaskDAO
-from models.task_models import VectorStoreTask
+from models.task_models import ParseTask, VectorStoreTask
 from services.model_client_factory import ModelClientFactory
 
 logger = logging.getLogger(__name__)
@@ -80,9 +77,7 @@ class VectorStoreBuilder:
             logger.error(f"Failed to initialize models: {e}")
             raise
 
-    async def build_vector_store(
-        self, task_id: str, config: Optional[Dict[str, Any]] = None
-    ) -> str:
+    async def build_vector_store(self, task_id: str, config: Dict[str, Any]) -> str:
         """构建向量数据库
 
         Args:
@@ -106,11 +101,8 @@ class VectorStoreBuilder:
 
             logger.info(f"Starting vector store build task {task.task_id}")
 
-            # 在线程池中执行构建
-            loop = asyncio.get_event_loop()
-            result = await loop.run_in_executor(
-                self.executor, self._build_vector_store_sync, task
-            )
+            # 直接执行异步构建
+            result = await self._build_vector_store_sync(task)
 
             task.result = result
             task.status = TaskStatus.COMPLETED
@@ -134,39 +126,61 @@ class VectorStoreBuilder:
 
             logger.error(f"Vector store build task {task.task_id} failed: {e}")
 
-    def _build_vector_store_sync(self, task: VectorStoreTask) -> Dict[str, Any]:
+    def test_collection_documents(self, task_id: str):
+        """测试收集文档"""
+        task = self.task_dao.get_parse_task(task_id)
+        if not task:
+            raise ValueError(f"Task {task_id} not found")
+        
+        all_tasks = self._collect_all_tasks_recursively(task)
+        
+        # 转换为字典并处理datetime字段
+        result = []
+        for task in all_tasks:
+            task_dict = task.to_dict()
+            # 将datetime字段转换为字符串
+            for key, value in task_dict.items():
+                if hasattr(value, 'isoformat'):  # datetime对象有isoformat方法
+                    task_dict[key] = value.isoformat() if value else None
+            result.append(task_dict)
+        
+        return result
+
+    async def _build_vector_store_sync(self, task: VectorStoreTask) -> Dict[str, Any]:
         """同步构建向量数据库"""
         try:
             # 1. 收集文档文件
             task.progress = 10
-            documents = self._collect_documents(task)
-            task.total_files = len(documents)
+            documents_by_type, origin_file_path = self._collect_documents(task)
+            total_files = sum(len(docs) for docs in documents_by_type.values())
+            task.total_files = total_files
 
-            if not documents:
-                raise ValueError("No valid documents found in directory")
-
-            # 2. 按文件类型分组处理文档
-            task.progress = 20
             all_nodes = []
-
-            # 按文件类型分组
-            docs_by_type = {}
-            for doc in documents:
-                logger.info(doc.metadata)
-                file_type = doc.metadata.get("file_type", ".txt")
-                if file_type not in docs_by_type:
-                    docs_by_type[file_type] = []
-                docs_by_type[file_type].append(doc)
+            all_doc_ids = []
 
             # 3. 设置提取器
             task.progress = 30
-            extractors = self._setup_extractors(task.config)
+            extractors = [
+                SmartMetadataExtractor(
+                    llm=self.llm,
+                    min_chunk_size_for_summary=task.config.get(
+                        "min_chunk_size_for_summary", 512
+                    ),
+                    min_chunk_size_for_qa=task.config.get(
+                        "min_chunk_size_for_qa", 1024
+                    ),
+                    max_keywords=task.config.get("max_keywords", 5),
+                    enable_persistent_cache=task.config.get("enable_persistent_cache", True),
+                    cache_dir=task.config.get("cache_dir", "cache/metadata"),
+                    # TODO num_questions=task.config.get("num_questions", 2),
+                )
+            ]
 
             # 4. 为每种文件类型创建专用处理管道
             task.progress = 40
-            progress_step = 20 / len(docs_by_type)  # 在40-60%之间分配进度
+            progress_step = 20 / total_files  # 在40-60%之间分配进度
 
-            for file_type, type_docs in docs_by_type.items():
+            for file_type, type_docs in documents_by_type.items():
                 logger.info(f"Processing {len(type_docs)} {file_type} files")
 
                 # 获取适合该文件类型的节点解析器
@@ -193,9 +207,6 @@ class VectorStoreBuilder:
                     transformations=[*node_parsers, *extractors, self.embed_model]
                 )
 
-                # 处理该类型的文档
-                import time
-
                 start_time = time.time()
                 logger.info(
                     f"Starting pipeline processing for {len(type_docs)} {file_type} documents"
@@ -206,6 +217,7 @@ class VectorStoreBuilder:
                     logger.info(
                         f"Document {i+1}/{len(type_docs)}: {doc.metadata.get('file_name', 'unknown')} (size: {len(doc.text)} chars)"
                     )
+                    all_doc_ids.append(doc.doc_id)
 
                 try:
                     # 创建自定义的管道来逐步处理并记录每个阶段
@@ -251,6 +263,10 @@ class VectorStoreBuilder:
                             elif hasattr(transformation, "__call__"):
                                 # 对于embedding model等
                                 current_docs = transformation(current_docs)
+                            elif hasattr(transformation, "aextract"):
+                                # 对于SmartMetadataExtractor，使用异步方法并传递进度回调
+                                import asyncio
+                                current_docs = await transformation.aextract(current_docs)
 
                             step_time = time.time() - step_start
                             logger.info(
@@ -311,6 +327,7 @@ class VectorStoreBuilder:
 
             # 5. 合并所有节点
             task.progress = 60
+            task.total_nodes = len(all_nodes)
             nodes = all_nodes
             logger.info(f"Merging nodes completed, total nodes: {len(nodes)}")
 
@@ -319,8 +336,9 @@ class VectorStoreBuilder:
             logger.info(f"Page information mapped to nodes, total nodes: {len(nodes)}")
 
             # 5.6 输出所有节点文本到本地文件（用于调试）
+            logger.info(f"🔍 准备保存节点调试信息，节点数量: {len(nodes)}")
             self._save_nodes_text_to_file(nodes, task.task_id)
-            logger.info(f"Nodes text saved to local file for debugging")
+            logger.info(f"✅ Nodes text saved to local file for debugging")
 
             # 6. 创建向量存储
             task.progress = 80
@@ -328,10 +346,13 @@ class VectorStoreBuilder:
             start_time = time.time()
 
             try:
-                # 提取文件信息用于向量存储创建
-                file_info = self._extract_file_info_from_task(task, documents)
-                vector_store, index, actual_index_id = self._create_vector_store(
-                    nodes, task.task_id, file_info
+                # 依据parse_task_id 来创建向量索引或数据库
+                vector_store, index, actual_index_id = (
+                    self._create_or_update_vector_store(
+                        nodes,
+                        origin_file_path,
+                        all_doc_ids,
+                    )
                 )
                 creation_time = time.time() - start_time
                 logger.info(
@@ -349,27 +370,8 @@ class VectorStoreBuilder:
             logger.info(
                 f"Starting index save for task {task.task_id}, using index_id: {actual_index_id}"
             )
-            start_time = time.time()
 
-            try:
-                index_path = self._save_index(index, actual_index_id)
-                save_time = time.time() - start_time
-                logger.info(
-                    f"Index saved successfully in {save_time:.2f}s to: {index_path}"
-                )
-            except Exception as e:
-                save_time = time.time() - start_time
-                logger.error(f"Index save failed after {save_time:.2f}s: {e}")
-                raise
-
-            # 8. 生成统计信息
-            logger.info("Generating statistics")
-            start_time = time.time()
-            stats = self._generate_stats(documents, nodes, task)
-            stats_time = time.time() - start_time
-            logger.info(f"Statistics generated in {stats_time:.2f}s")
-
-            # 9. 保存索引信息到数据库
+            # 8. 保存索引信息到数据库
             logger.info("Saving index information to database")
             start_time = time.time()
             try:
@@ -382,13 +384,11 @@ class VectorStoreBuilder:
                 else:
                     logger.info("Automatic description generated successfully")
 
-                # 收集文件信息用于保存到数据库
-                file_info = self._extract_file_info_from_task(task, documents)
                 self._save_index_info_to_db(
+                    origin_file_path,
                     actual_index_id,
                     index_description,
-                    file_info=file_info,
-                    document_count=len(documents),
+                    document_count=len(all_doc_ids),
                     node_count=len(nodes),
                     vector_dimension=settings.VECTOR_DIM,
                     processing_config=task.config,
@@ -404,11 +404,8 @@ class VectorStoreBuilder:
 
             result = {
                 "index_id": actual_index_id,
-                "index_path": index_path,
-                "document_count": len(documents),
                 "node_count": len(nodes),
                 "vector_dimension": settings.VECTOR_DIM,
-                "stats": stats,
                 "config": task.config,
             }
 
@@ -416,49 +413,102 @@ class VectorStoreBuilder:
 
         except Exception as e:
             import traceback
+
             traceback.print_exc()
             logger.error(f"Error building vector store: {e}")
             raise
 
-    def _collect_documents(self, task: VectorStoreTask) -> List[Document]:
+    def _process_document_task(self, doc_task) -> List[Document]:
+        """根据任务类型处理单个文档任务并返回文档列表"""
+        if doc_task.file_extension in [".html", ".htm"]:
+            logger.info(f"Processing HTML task {doc_task.task_id} with HTMLProcessor")
+            return DocumentHTMLProcessor().collect_document(doc_task)
+        else:
+            logger.info(
+                f"Processing non-HTML task {doc_task.task_id} with DoclingProcessor"
+            )
+            return DocumentDoclingProcessor().collect_document(doc_task)
+
+    def _collect_documents(
+        self, task: VectorStoreTask
+    ) -> Tuple[Dict[str, List[Document]], str]:
         """
         收集目录中的文档
         """
-        # 使用Session上下文管理器确保在访问关联对象时Session仍然活跃
         with next(get_db()) as db:
-            from dao.task_dao import TaskDAO
             task_dao = TaskDAO(db)
             parse_task = task_dao.get_parse_task(task.parse_task_id)
-            
+
             if not parse_task:
                 raise ValueError(f"Parse task not found: {task.parse_task_id}")
-            
-            documents = []
-            
-            # 判断任务类型 - 在Session活跃时访问subtasks
-            if parse_task.subtasks:
-                # 主任务：直接遍历子任务，根据每个子任务的类型选择处理器
-                logger.info(f"Main task {task.parse_task_id} detected, processing {len(parse_task.subtasks)} subtasks")
-                for subtask in parse_task.subtasks:
-                    if subtask.file_extension in ['.html', '.htm']:
-                        logger.info(f"Processing HTML subtask {subtask.task_id} with HTMLProcessor")
-                        subtask_docs = DocumentHTMLProcessor().collect_document(subtask)
-                    else:
-                        logger.info(f"Processing non-HTML subtask {subtask.task_id} with DoclingProcessor")
-                        subtask_docs = DocumentDoclingProcessor().collect_document(subtask)
-                    documents.extend(subtask_docs)
-            else:
-                # 子任务：根据文件扩展名选择处理器
-                if parse_task.file_extension in ['.html', '.htm']:
-                    logger.info(f"Subtask {task.parse_task_id} is HTML file, using HTMLProcessor")
-                    documents = DocumentHTMLProcessor().collect_document(parse_task)
-                else:
-                    logger.info(f"Subtask {task.parse_task_id} is non-HTML file, using DoclingProcessor")
-                    documents = DocumentDoclingProcessor().collect_document(parse_task)
-            
-            logger.info(f"Collected {len(documents)} documents from task {task.parse_task_id}")
-            return documents
 
+            documents_by_type = {}
+
+            # 递归收集所有层级的任务
+            all_tasks = self._collect_all_tasks_recursively(parse_task)
+
+            logger.warning(
+                f"Found {len(all_tasks)} task(s) to process for document collection (including recursive subtasks)."
+            )
+
+            for task_item in all_tasks:
+                docs = self._process_document_task(task_item)
+                for doc in docs:
+                    file_type = doc.metadata.get("file_type")  # 按file_type分类
+                    documents_by_type.setdefault(file_type, []).append(doc)
+
+            total_docs = sum(len(docs) for docs in documents_by_type.values())
+            logger.info(
+                f"Collected {total_docs} documents from task {task.parse_task_id}, grouped by file type."
+            )
+            return documents_by_type, parse_task.file_path
+
+    def _collect_all_tasks_recursively(self, parse_task):
+        """
+        递归收集所有层级的任务
+
+        由于 task_dao.get_parse_task 方法只能加载一层子任务，
+        这个方法会通过多次查询数据库来获取所有层级的子任务。
+
+        Args:
+            parse_task: 根任务
+
+        Returns:
+            List: 包含所有层级任务的列表
+        """
+        all_tasks = []
+        task_dao = self.task_dao
+
+        def collect_tasks(task: ParseTask):
+            """递归收集任务的内部函数"""
+            # 如果任务有output_directory字段值，则收集该任务
+            if task.output_directory:
+                all_tasks.append(task)
+            
+            # 如果任务有子任务，递归处理子任务
+            if task.subtasks:
+                for subtask in task.subtasks:
+                    # 对于每个子任务，重新从数据库加载以获取其子任务
+                    loaded_subtask = task_dao.get_parse_task(subtask.task_id)
+                    if loaded_subtask:
+                        collect_tasks(loaded_subtask)
+                    else:
+                        # 如果无法加载子任务，则使用当前任务
+                        collect_tasks(subtask)
+            elif not task.output_directory:
+                # 如果没有子任务且没有output_directory，说明是叶子节点但没有输出，也添加到处理列表
+                all_tasks.append(task)
+
+        collect_tasks(parse_task)
+
+        # 如果没有找到任何叶子节点任务，说明根任务本身就是叶子节点
+        if not all_tasks:
+            all_tasks.append(parse_task)
+
+        logger.info(
+            f"Recursively collected {len(all_tasks)} leaf tasks from parse_task {parse_task.task_id}"
+        )
+        return all_tasks
 
     def _get_node_parser_for_file_type(self, file_type: str, config: Dict[str, Any]):
         """根据文件类型获取合适的节点解析器"""
@@ -493,8 +543,6 @@ class VectorStoreBuilder:
         logger.info(
             "Using SmartMetadataExtractor with intelligent chunk-level processing"
         )
-
-        from .smart_metadata_extractor import SmartMetadataExtractor
 
         # 创建带有详细日志记录的LLM包装器
         def create_logging_llm(llm, extractor_name):
@@ -534,9 +582,12 @@ class VectorStoreBuilder:
                 ),
                 min_chunk_size_for_qa=config.get("min_chunk_size_for_qa", 300),
                 max_keywords=config.get("max_keywords", 5),
-                num_questions=config.get("num_questions", 3),
-                show_progress=True,
-                extract_mode=extract_mode,
+                enable_persistent_cache=config.get("enable_persistent_cache", True),
+                cache_dir=config.get("cache_dir", "cache/metadata"),
+                # TODO: 这些参数可能需要根据新的实现调整
+                # num_questions=config.get("num_questions", 3),
+                # show_progress=True,
+                # extract_mode=extract_mode,
             )
         )
 
@@ -550,139 +601,93 @@ class VectorStoreBuilder:
         return extractors
 
     def _determine_vector_store_strategy(
-        self, current_index_id: str, file_info: Optional[Dict[str, Any]] = None
+        self, origin_file_path: str
     ) -> Tuple[str, bool]:
-        """确定向量存储策略：返回目标索引ID和是否需要更新
+        """
+        根据任务ID确定向量存储策略：返回目标索引ID和是否需要更新
 
         Returns:
             Tuple[str, bool]: (target_index_id, should_update)
         """
-        if file_info and file_info.get("file_md5"):
+        if origin_file_path:
             # 根据文件MD5检查是否已存在相同文件的索引
             try:
-                # 使用已导入的SessionLocal
-                from dao.index_dao import IndexDAO
-
                 db = SessionLocal()
                 try:
-                    existing_index = IndexDAO.get_index_by_file_md5(
-                        db, file_info.get("file_md5")
+                    existing_index = IndexDAO.get_index_by_origin_file_path(
+                        db, origin_file_path
                     )
                     if existing_index:
                         # 找到现有索引，使用现有的index_id和对应的表
                         target_index_id = existing_index.index_id
                         logger.info(
-                            f"Found existing index for file MD5: {file_info.get('file_md5')}, using existing index_id: {target_index_id}"
+                            f"Found existing index for origin_file_path: {origin_file_path}, using existing index_id: {target_index_id}"
                         )
                         return target_index_id, True
                     else:
-                        # 没有找到现有索引，使用当前index_id创建新的
+                        # 没有找到现有索引，使用当前origin_file_path创建新的
                         logger.info(
-                            f"No existing index found for file MD5: {file_info.get('file_md5')}, creating new index with id: {current_index_id}"
+                            f"No existing index found for origin_file_path: {origin_file_path}, creating new index with id: {origin_file_path}"
                         )
-                        return current_index_id, False
+                        return str(uuid.uuid4()), False
                 finally:
                     db.close()
             except Exception as e:
                 logger.warning(
-                    f"Error checking existing index by MD5: {e}, using current index_id: {current_index_id}"
+                    f"Error checking existing index by origin_file_path: {e}, using current origin_file_path: {origin_file_path}"
                 )
-                return current_index_id, False
+                return str(uuid.uuid4()), False  # 保持返回origin_file_path
         else:
-            # 如果没有文件信息，使用当前index_id
+            # 如果没有文件信息，使用当前origin_file_path
             logger.info(
-                f"No file MD5 available, using current index_id: {current_index_id}"
+                f"No file MD5 available, using current origin_file_path: {origin_file_path}"
             )
-            return current_index_id, False
+            return str(uuid.uuid4()), False
 
-    def _create_vector_store(
+    def _create_or_update_vector_store(
         self,
         nodes: List[Any],
-        index_id: str,
-        file_info: Optional[Dict[str, Any]] = None,
+        origin_file_path: str,
+        all_doc_ids: List[str],
     ) -> Tuple[Any, Any, str]:
         """创建向量存储
 
         Returns:
             Tuple[Any, Any, str]: (vector_store, index, actual_index_id)
         """
-        import time
+        # 检查是否存在相同文件的索引，并确定使用的索引ID和表名
+        target_index_id, should_update = self._determine_vector_store_strategy(
+            origin_file_path
+        )
 
-        if settings.VECTOR_STORE_TYPE == "postgres":
-            # 创建PostgreSQL向量存储
-            logger.info(
-                f"Creating PostgreSQL vector store with dimension {settings.VECTOR_DIM}"
+        # 创建PostgreSQL向量存储
+        logger.info(
+            f"Creating PostgreSQL vector store with dimension {settings.VECTOR_DIM}"
+        )
+        start_time = time.time()
+        # 创建PostgreSQL向量存储构建器（使用确定的索引ID）
+        postgres_builder = create_postgres_vector_store_builder(
+            host=settings.POSTGRES_HOST,
+            port=settings.POSTGRES_PORT,
+            database=settings.POSTGRES_DATABASE,
+            user=settings.POSTGRES_USER,
+            password=settings.POSTGRES_PASSWORD,
+            table_name=f"{settings.POSTGRES_TABLE_NAME}_{target_index_id.replace('-', '_')}",
+            embed_dim=settings.VECTOR_DIM,
+        )
+
+        if should_update:
+            logger.info(f"Updating existing vector store with new data")
+            index = postgres_builder.update_index_with_nodes(
+                nodes, self.embed_model, all_doc_ids
             )
-            start_time = time.time()
-
-            # 检查是否存在相同文件的索引，并确定使用的索引ID和表名
-            target_index_id, should_update = self._determine_vector_store_strategy(
-                index_id, file_info
-            )
-
-            # 创建PostgreSQL向量存储构建器（使用确定的索引ID）
-            postgres_builder = create_postgres_vector_store_builder(
-                host=settings.POSTGRES_HOST,
-                port=settings.POSTGRES_PORT,
-                database=settings.POSTGRES_DATABASE,
-                user=settings.POSTGRES_USER,
-                password=settings.POSTGRES_PASSWORD,
-                table_name=f"{settings.POSTGRES_TABLE_NAME}_{target_index_id.replace('-', '_')}",
-                embed_dim=settings.VECTOR_DIM,
-            )
-
-            if should_update:
-                logger.info(f"Updating existing vector store with new data")
-                # 使用更新方法
-                index = postgres_builder.update_index_with_nodes(
-                    nodes, self.embed_model
-                )
-                vector_store = index.storage_context.vector_store
-            else:
-                logger.info(f"Creating new vector store")
-                # 创建向量存储
-                vector_store = postgres_builder.create_vector_store()
-                store_time = time.time() - start_time
-                logger.info(f"PostgreSQL vector store created in {store_time:.3f}s")
-
-                # 创建存储上下文
-                logger.info("Creating storage context")
-                start_time = time.time()
-                storage_context = StorageContext.from_defaults(
-                    vector_store=vector_store
-                )
-                context_time = time.time() - start_time
-                logger.info(f"Storage context created in {context_time:.3f}s")
-
-                # 创建索引
-                logger.info(f"Creating vector store index with {len(nodes)} nodes")
-                start_time = time.time()
-                index = VectorStoreIndex(
-                    nodes=nodes,
-                    storage_context=storage_context,
-                    embed_model=self.embed_model,
-                )
-
-            index_time = time.time() - start_time
-            logger.info(f"Vector store index processed in {index_time:.2f}s")
-
-            # 返回实际使用的索引ID
-            return vector_store, index, target_index_id
-
+            vector_store = index.storage_context.vector_store
         else:
-            # 创建FAISS索引（默认行为）
-            logger.info(f"Creating FAISS index with dimension {settings.VECTOR_DIM}")
-            start_time = time.time()
-            faiss_index = faiss.IndexFlatL2(settings.VECTOR_DIM)
-            faiss_time = time.time() - start_time
-            logger.info(f"FAISS index created in {faiss_time:.3f}s")
-
+            logger.info(f"Creating new vector store")
             # 创建向量存储
-            logger.info("Creating FAISS vector store")
-            start_time = time.time()
-            vector_store = FaissVectorStore(faiss_index=faiss_index)
+            vector_store = postgres_builder.create_vector_store()
             store_time = time.time() - start_time
-            logger.info(f"Vector store created in {store_time:.3f}s")
+            logger.info(f"PostgreSQL vector store created in {store_time:.3f}s")
 
             # 创建存储上下文
             logger.info("Creating storage context")
@@ -699,11 +704,12 @@ class VectorStoreBuilder:
                 storage_context=storage_context,
                 embed_model=self.embed_model,
             )
-            index_time = time.time() - start_time
-            logger.info(f"Vector store index created in {index_time:.2f}s")
 
-            # 对于FAISS，使用传入的index_id
-            return vector_store, index, index_id
+        index_time = time.time() - start_time
+        logger.info(f"Vector store index processed in {index_time:.2f}s")
+
+        # 返回实际使用的索引ID
+        return vector_store, index, target_index_id
 
     def _save_index(self, index: VectorStoreIndex, index_id: str) -> str:
         """保存索引"""
@@ -745,7 +751,7 @@ class VectorStoreBuilder:
             if not hasattr(node, "metadata"):
                 continue
 
-            doc_path = node.metadata.get("source_file")
+            doc_path = node.metadata.get("source_file")  # 拿到向量化的源文件
             if not doc_path:
                 continue
 
@@ -827,102 +833,298 @@ class VectorStoreBuilder:
 
         return nodes
 
-    def _generate_stats(
-        self, documents: List[Document], nodes: List[Any], task: VectorStoreTask
-    ) -> Dict[str, Any]:
-        """生成统计信息"""
-        total_chars = sum(len(doc.text) for doc in documents)
-        avg_chunk_size = (
-            sum(len(getattr(node, "text", "")) for node in nodes) / len(nodes)
-            if nodes
-            else 0
-        )
-
-        # 统计文件类型
-        file_types = {}
-        for file_path in task.processed_files:
-            ext = Path(file_path).suffix.lower()
-            file_types[ext] = file_types.get(ext, 0) + 1
-
-        # 统计有页码信息的节点数量
-        nodes_with_page = sum(
-            1
-            for node in nodes
-            if hasattr(node, "metadata") and "page_idx" in node.metadata
-        )
-
-        return {
-            "total_characters": total_chars,
-            "average_chunk_size": avg_chunk_size,
-            "file_types": file_types,
-            "nodes_with_page_info": nodes_with_page,
-            "nodes_with_page_percentage": (
-                f"{nodes_with_page/len(nodes)*100:.2f}%" if nodes else "0%"
-            ),
-            "processing_time": (
-                time.time() - task.started_at.timestamp() if task.started_at else 0
-            ),
-        }
+    def _detect_global_circular_references(self, nodes: List[Any]):
+        """检测节点间的全局循环引用"""
+        logger.info(f"🔍 开始检测 {len(nodes)} 个节点的循环引用...")
+        
+        # 创建节点ID到节点的映射
+        node_map = {}
+        for i, node in enumerate(nodes):
+            if hasattr(node, 'node_id'):
+                node_map[node.node_id] = (i, node)
+            else:
+                logger.warning(f"节点 {i} 没有node_id属性")
+        
+        logger.info(f"📊 创建了 {len(node_map)} 个节点的ID映射")
+        
+        # 检查每个节点的元数据中是否引用了其他节点
+        circular_refs = []
+        node_references = []
+        
+        for i, node in enumerate(nodes):
+            if not hasattr(node, 'metadata') or not node.metadata:
+                continue
+                
+            current_node_id = getattr(node, 'node_id', f'node_{i}')
+            
+            # 递归检查元数据中的引用
+            refs = self._find_node_references_in_object(node.metadata, node_map, current_node_id, path="metadata")
+            if refs:
+                node_references.extend(refs)
+        
+        # 分析引用关系
+        if node_references:
+            for ref in node_references:
+                
+                # 检查是否是循环引用
+                if ref['source'] == ref['target']:
+                    circular_refs.append(ref)
+                    logger.error(f"🔄 发现自引用循环: {ref['source']} -> {ref['target']}")
+        
+        if circular_refs:
+            logger.error(f"❌ 发现 {len(circular_refs)} 个循环引用!")
+            for ref in circular_refs:
+                logger.error(f"  🔄 循环引用: {ref['source']} (路径: {ref['path']})")
+        else:
+            logger.info("✅ 未发现直接的循环引用")
+        
+        return circular_refs, node_references
+    
+    def _find_node_references_in_object(self, obj, node_map: dict, source_node_id: str, path: str = "", visited=None):
+        """递归查找对象中的节点引用"""
+        if visited is None:
+            visited = set()
+        
+        # 防止无限递归
+        obj_id = id(obj)
+        if obj_id in visited:
+            return []
+        visited.add(obj_id)
+        
+        references = []
+        
+        try:
+            # 检查是否是节点对象
+            if hasattr(obj, 'node_id') and obj.node_id in node_map:
+                references.append({
+                    'source': source_node_id,
+                    'target': obj.node_id,
+                    'path': path,
+                    'object_type': type(obj).__name__
+                })
+            
+            # 递归检查字典
+            elif isinstance(obj, dict):
+                for key, value in obj.items():
+                    new_path = f"{path}.{key}" if path else key
+                    refs = self._find_node_references_in_object(value, node_map, source_node_id, new_path, visited.copy())
+                    references.extend(refs)
+            
+            # 递归检查列表
+            elif isinstance(obj, (list, tuple)):
+                for i, item in enumerate(obj):
+                    new_path = f"{path}[{i}]" if path else f"[{i}]"
+                    refs = self._find_node_references_in_object(item, node_map, source_node_id, new_path, visited.copy())
+                    references.extend(refs)
+            
+            # 检查对象属性
+            elif hasattr(obj, '__dict__'):
+                for attr_name, attr_value in obj.__dict__.items():
+                    new_path = f"{path}.{attr_name}" if path else attr_name
+                    refs = self._find_node_references_in_object(attr_value, node_map, source_node_id, new_path, visited.copy())
+                    references.extend(refs)
+        
+        except Exception as e:
+            # 忽略检查过程中的错误，避免影响主流程
+            pass
+        
+        return references
 
     def _save_nodes_text_to_file(self, nodes: List[Any], task_id: str):
         """将所有节点的文本内容保存到本地文件用于调试"""
+        
+        # 预先检查节点间的循环引用
+        circular_refs, node_references = self._detect_global_circular_references(nodes)
+        
         try:
             # 创建调试输出目录
             debug_dir = Path("debug_nodes")
             debug_dir.mkdir(exist_ok=True)
-            
+
             # 生成文件名
             timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
             output_file = debug_dir / f"nodes_text_{task_id}_{timestamp}.txt"
-            
+
             with open(output_file, "w", encoding="utf-8") as f:
                 f.write(f"节点文本调试输出\n")
                 f.write(f"任务ID: {task_id}\n")
                 f.write(f"生成时间: {datetime.now().isoformat()}\n")
                 f.write(f"总节点数: {len(nodes)}\n")
-                f.write("=" * 80 + "\n\n")
                 
+                # 写入循环引用检测结果
+                f.write("\n🔍 循环引用检测结果:\n")
+                f.write("-" * 40 + "\n")
+                if circular_refs:
+                    f.write(f"❌ 发现 {len(circular_refs)} 个循环引用:\n")
+                    for ref in circular_refs:
+                        f.write(f"  🔄 {ref['source']} -> {ref['target']} (路径: {ref['path']})\n")
+                else:
+                    f.write("✅ 未发现循环引用\n")
+                
+                if node_references:
+                    f.write(f"\n🔗 节点引用关系 (共 {len(node_references)} 个):\n")
+                    for ref in node_references:
+                        f.write(f"  - {ref['source']} -> {ref['target']} (路径: {ref['path']}, 类型: {ref['object_type']})\n")
+                else:
+                    f.write("\n🔗 未发现节点间引用关系\n")
+                
+                f.write("\n" + "=" * 80 + "\n\n")
+                f.flush()  # 强制刷新缓冲区
+
                 for i, node in enumerate(nodes):
-                    f.write(f"节点 {i+1}/{len(nodes)}:\n")
-                    f.write("-" * 40 + "\n")
-                    
-                    # 输出节点ID
-                    if hasattr(node, 'node_id'):
-                        f.write(f"节点ID: {node.node_id}\n")
-                    
-                    # 输出元数据
-                    if hasattr(node, 'metadata') and node.metadata:
-                        f.write(f"元数据: {json.dumps(node.metadata, ensure_ascii=False, indent=2)}\n")
-                    
-                    # 输出文本内容
-                    if hasattr(node, 'text'):
-                        text_content = node.text if node.text else "[空文本]"
-                        f.write(f"文本内容 (长度: {len(text_content)}字符):\n")
-                        f.write(f"{text_content}\n")
-                    else:
-                        f.write("文本内容: [无文本属性]\n")
-                    
-                    # 输出嵌入向量信息（如果有）
-                    if hasattr(node, 'embedding') and node.embedding:
-                        f.write(f"嵌入向量: 已生成 (维度: {len(node.embedding)})\n")
-                    else:
-                        f.write("嵌入向量: 未生成\n")
-                    
-                    f.write("\n" + "=" * 80 + "\n\n")
+                    try:
+                        logger.debug(f"📄 处理节点 {i+1}/{len(nodes)}")
+                        f.write(f"节点 {i+1}/{len(nodes)}:\n")
+                        f.write("-" * 40 + "\n")
+
+                        # 输出节点ID
+                        if hasattr(node, "node_id"):
+                            f.write(f"节点ID: {node.node_id}\n")
+                            logger.debug(f"节点ID: {node.node_id}")
+                        else:
+                            f.write("节点ID: [无ID属性]\n")
+                            logger.debug("节点无ID属性")
+
+                        # 输出节点类型
+                        f.write(f"节点类型: {type(node).__name__}\n")
+                        logger.debug(f"节点类型: {type(node).__name__}")
+
+                        # 输出元数据（增强循环引用检测）
+                        if hasattr(node, "metadata") and node.metadata:
+                            try:
+                                # 尝试直接序列化
+                                metadata_str = json.dumps(node.metadata, ensure_ascii=False, indent=2)
+                                f.write(f"元数据: {metadata_str}\n")
+                                logger.debug(f"元数据长度: {len(metadata_str)}字符")
+                            except Exception as meta_e:
+                                f.write(f"元数据: [序列化失败: {meta_e}]\n")
+                                
+                                # 详细分析元数据结构
+                                f.write("🔍 元数据详细分析:\n")
+                                
+                                try:
+                                    # 分析元数据的键值对
+                                    f.write(f"  - 元数据类型: {type(node.metadata).__name__}\n")
+                                    f.write(f"  - 元数据键数量: {len(node.metadata) if hasattr(node.metadata, '__len__') else 'N/A'}\n")
+                                    
+                                    if isinstance(node.metadata, dict):
+                                        f.write("  - 元数据键列表:\n")
+                                        for key in node.metadata.keys():
+                                            f.write(f"    * {key}: {type(node.metadata[key]).__name__}\n")
+                                            
+                                            # 检查每个值是否可序列化
+                                            try:
+                                                json.dumps(node.metadata[key], ensure_ascii=False)
+                                                f.write(f"      ✅ 可序列化\n")
+                                            except Exception as key_e:
+                                                f.write(f"      ❌ 不可序列化: {key_e}\n")
+                                                
+                                                # 进一步分析不可序列化的对象
+                                                obj = node.metadata[key]
+                                                f.write(f"        - 对象类型: {type(obj).__name__}\n")
+                                                f.write(f"        - 对象模块: {type(obj).__module__}\n")
+                                                
+                                                # 检查是否是节点对象
+                                                if hasattr(obj, 'node_id'):
+                                                    f.write(f"        - 🔗 检测到节点引用: {obj.node_id}\n")
+                                                
+                                                # 检查是否有循环引用
+                                                if obj is node:
+                                                    f.write(f"        - 🔄 检测到自引用循环!\n")
+                                                    logger.error(f"发现自引用循环: {key}")
+                                                elif hasattr(obj, '__dict__'):
+                                                    f.write(f"        - 对象属性数量: {len(obj.__dict__)}\n")
+                                                    for attr_name, attr_value in obj.__dict__.items():
+                                                        if attr_value is node:
+                                                            f.write(f"        - 🔄 检测到循环引用: {attr_name} -> 当前节点\n")
+                                                            logger.error(f"发现循环引用: {key}.{attr_name} -> 当前节点")
+                                                        elif hasattr(attr_value, 'node_id') and hasattr(node, 'node_id') and attr_value.node_id == node.node_id:
+                                                            f.write(f"        - 🔄 检测到节点ID循环引用: {attr_name}\n")
+                                                            logger.error(f"发现节点ID循环引用: {key}.{attr_name}")
+                                    
+                                    # 尝试创建安全的元数据副本
+                                    f.write("  - 尝试创建安全的元数据副本:\n")
+                                    safe_metadata = {}
+                                    for key, value in node.metadata.items():
+                                        try:
+                                            json.dumps(value, ensure_ascii=False)
+                                            safe_metadata[key] = value
+                                            f.write(f"    ✅ {key}: 已包含\n")
+                                        except:
+                                            safe_metadata[key] = f"<不可序列化的{type(value).__name__}对象>"
+                                            f.write(f"    ⚠️ {key}: 已替换为占位符\n")
+                                    
+                                    safe_metadata_str = json.dumps(safe_metadata, ensure_ascii=False, indent=2)
+                                    f.write(f"  - 安全元数据: {safe_metadata_str}\n")
+                                    
+                                except Exception as analysis_e:
+                                    f.write(f"  - 元数据分析失败: {analysis_e}\n")
+                                    logger.error(f"元数据分析失败: {analysis_e}")
+                        else:
+                            f.write("元数据: [无元数据或为空]\n")
+                            logger.debug("节点无元数据")
+
+                        # 输出文本内容
+                        text_content = None
+                        if hasattr(node, "text"):
+                            text_content = node.text if node.text else "[空文本]"
+                            f.write(f"文本内容 (长度: {len(text_content)}字符):\n")
+                            f.write(f"{text_content}\n")
+                            logger.debug(f"文本内容长度: {len(text_content)}字符")
+                        elif hasattr(node, "get_content"):
+                            try:
+                                text_content = node.get_content()
+                                text_content = text_content if text_content else "[空文本]"
+                                f.write(f"文本内容 (通过get_content获取，长度: {len(text_content)}字符):\n")
+                                f.write(f"{text_content}\n")
+                                logger.debug(f"通过get_content获取文本，长度: {len(text_content)}字符")
+                            except Exception as content_e:
+                                f.write(f"文本内容: [get_content调用失败: {content_e}]\n")
+                        else:
+                            f.write("文本内容: [无文本属性]\n")
+                            logger.debug("节点无文本属性")
+
+                        # 输出嵌入向量信息（如果有）
+                        if hasattr(node, "embedding") and node.embedding:
+                            f.write(f"嵌入向量: 已生成 (维度: {len(node.embedding)})\n")
+                            logger.debug(f"嵌入向量维度: {len(node.embedding)}")
+                        else:
+                            f.write("嵌入向量: 未生成\n")
+                            logger.debug("节点无嵌入向量")
+
+                        f.write("\n" + "=" * 80 + "\n\n")
+                        
+                        # 每10个节点刷新一次缓冲区
+                        if (i + 1) % 10 == 0:
+                            f.flush()
+                            logger.debug(f"已处理 {i+1} 个节点，缓冲区已刷新")
+                            
+                    except Exception as node_e:
+                        error_msg = f"处理节点 {i+1} 时出错: {node_e}"
+                        f.write(f"错误: {error_msg}\n")
+                        f.write("\n" + "=" * 80 + "\n\n")
+                        logger.error(error_msg)
+                        continue
+
+                f.flush()  # 最终刷新
+
             
-            logger.info(f"节点文本已保存到调试文件: {output_file}")
-            logger.info(f"共保存 {len(nodes)} 个节点的文本内容")
-            
+            # 验证文件是否正确写入
+            if output_file.exists():
+                file_size = output_file.stat().st_size
+            else:
+                logger.error("❌ 调试文件未成功创建")
+
         except Exception as e:
-            logger.error(f"保存节点文本到文件失败: {e}")
+            logger.error(f"❌ 保存节点文本到文件失败: {e}")
             import traceback
             logger.error(f"详细错误信息: {traceback.format_exc()}")
 
     def _save_index_info_to_db(
         self,
+        origin_file_path: str,
         index_id: str,
         index_description: Optional[str] = None,
-        file_info: Optional[Dict[str, Any]] = None,
         document_count: Optional[int] = None,
         node_count: Optional[int] = None,
         vector_dimension: Optional[int] = None,
@@ -930,23 +1132,13 @@ class VectorStoreBuilder:
     ):
         """保存索引信息到数据库"""
         try:
-            from models.database import SessionLocal
-            from dao.index_dao import IndexDAO
 
             # 创建数据库会话
             db = SessionLocal()
             try:
-                existing_index = None
-
-                # 如果有文件信息，优先根据文件MD5查找现有索引
-                if file_info and file_info.get("file_md5"):
-                    existing_index = IndexDAO.get_index_by_file_md5(
-                        db, file_info.get("file_md5")
-                    )
-
-                # 如果根据MD5没找到，再根据索引ID查找
-                if not existing_index:
-                    existing_index = IndexDAO.get_index_by_id(db, index_id)
+                existing_index = IndexDAO.get_index_by_origin_file_path(
+                    db, origin_file_path
+                )
 
                 if existing_index:
                     # 更新现有索引信息
@@ -968,7 +1160,7 @@ class VectorStoreBuilder:
                     db.commit()
                     db.refresh(existing_index)
                     logger.info(
-                        f"Updated existing index info for file MD5: {file_info.get('file_md5') if file_info else 'N/A'}, index ID: {index_id}"
+                        f"Updated existing index info for origin_file_path: {origin_file_path}, index ID: {index_id}"
                     )
                 else:
                     # 创建新索引信息
@@ -979,20 +1171,8 @@ class VectorStoreBuilder:
                         "node_count": node_count,
                         "vector_dimension": vector_dimension,
                         "processing_config": processing_config,
+                        "origin_file_path": origin_file_path,
                     }
-
-                    # 添加文件信息（如果有）
-                    if file_info:
-                        create_params.update(
-                            {
-                                "file_md5": file_info.get("file_md5"),
-                                "file_path": file_info.get("file_path"),
-                                "file_name": file_info.get("file_name"),
-                                "file_size": file_info.get("file_size"),
-                                "file_extension": file_info.get("file_extension"),
-                                "mime_type": file_info.get("mime_type"),
-                            }
-                        )
 
                     IndexDAO.create_index(db, **create_params)
                     logger.info(f"Created new index info in database: {index_id}")
@@ -1001,85 +1181,6 @@ class VectorStoreBuilder:
         except Exception as e:
             logger.error(f"Error saving index info to database: {e}")
             raise
-
-    def _extract_file_info_from_task(
-        self, task: VectorStoreTask, documents: List[Any]
-    ) -> Optional[Dict[str, Any]]:
-        """从任务和文档中提取文件信息"""
-        try:
-            import hashlib
-            from pathlib import Path
-
-            # 尝试从解析任务获取原始文件信息
-            if task.parse_task_id:
-                from .document_parser import document_parser
-
-                parse_task = document_parser.get_task(task.parse_task_id)
-                if parse_task:
-                    original_file_path = parse_task.get("file_path")
-                    if original_file_path and Path(original_file_path).exists():
-                        file_path = Path(original_file_path)
-
-                        # 计算文件MD5
-                        file_md5 = None
-                        try:
-                            with open(file_path, "rb") as f:
-                                file_content = f.read()
-                                file_md5 = hashlib.md5(file_content).hexdigest()
-                        except Exception as e:
-                            logger.warning(
-                                f"Failed to calculate MD5 for {file_path}: {e}"
-                            )
-
-                        # 获取文件信息
-                        file_info = parse_task.get("file_info", {})
-
-                        return {
-                            "file_md5": file_md5,
-                            "file_path": str(file_path),
-                            "file_name": file_path.name,
-                            "file_size": file_info.get("size")
-                            or file_path.stat().st_size,
-                            "file_extension": file_path.suffix,
-                            "mime_type": file_info.get("mime_type"),
-                        }
-
-            # 如果无法从解析任务获取，尝试从文档元数据获取
-            if documents:
-                first_doc = documents[0]
-                if hasattr(first_doc, "metadata") and first_doc.metadata:
-                    metadata = first_doc.metadata
-                    original_file_path = metadata.get("original_file_path")
-                    if original_file_path and Path(original_file_path).exists():
-                        file_path = Path(original_file_path)
-
-                        # 计算文件MD5
-                        file_md5 = None
-                        try:
-                            with open(file_path, "rb") as f:
-                                file_content = f.read()
-                                file_md5 = hashlib.md5(file_content).hexdigest()
-                        except Exception as e:
-                            logger.warning(
-                                f"Failed to calculate MD5 for {file_path}: {e}"
-                            )
-
-                        return {
-                            "file_md5": file_md5,
-                            "file_path": str(file_path),
-                            "file_name": metadata.get("original_file_name")
-                            or file_path.name,
-                            "file_size": metadata.get("file_size"),
-                            "file_extension": metadata.get("file_extension")
-                            or file_path.suffix,
-                            "mime_type": metadata.get("mime_type"),
-                        }
-
-            return None
-
-        except Exception as e:
-            logger.error(f"Error extracting file info from task: {e}")
-            return None
 
     def _generate_auto_description(
         self, index: Any, config: Dict[str, Any]
@@ -1112,7 +1213,7 @@ class VectorStoreBuilder:
         return [task.to_dict() for task in self.tasks.values()]
 
     def create_vector_store_task_from_parse_task(
-        self, task_id: str, config: Dict[str, Any] = None
+        self, task_id: str, config: Dict[str, Any]
     ) -> str:
         """从解析任务创建向量存储构建任务"""
         # 获取解析任务信息
@@ -1120,7 +1221,7 @@ class VectorStoreBuilder:
         if not parse_task:
             raise ValueError(f"Parse task not found: {task_id}")
 
-        if parse_task.status != "COMPLETED":
+        if parse_task.status != TaskStatus.COMPLETED:
             raise ValueError(
                 f"Parse task {task_id} is not completed. Current status: {parse_task.status}"
             )
@@ -1128,37 +1229,27 @@ class VectorStoreBuilder:
         # 判断是否为主任务（parent_task_id为None表示主任务）
         is_main_task = parse_task.parent_task_id is None
         output_dir = None
-        
+
         if is_main_task:
             # 主任务（目录解析）无需校验output_directory
             # 主任务通过子任务来处理具体文件，自身不直接产生输出目录
-            logger.info(f"Main task {task_id} detected, skipping output_directory validation")
+            logger.info(
+                f"Main task {task_id} detected, skipping output_directory validation"
+            )
         else:
             # 子任务（单文件解析）必须有output_directory
             output_dir = parse_task.output_directory
             if not output_dir:
                 raise ValueError(f"No output directory found for subtask {task_id}")
-            
+
             # 检查输出目录是否存在
             if not os.path.exists(output_dir):
                 raise ValueError(f"Output directory does not exist: {output_dir}")
-            
+
             logger.info(f"Subtask {task_id} validated, output_directory: {output_dir}")
 
         # 创建向量存储任务ID
         vector_task_id = str(uuid.uuid4())
-
-        # 设置默认配置
-        task_config = config or {
-            "extract_keywords": True,
-            "extract_summary": True,
-            "generate_qa": True,
-            "chunk_size": settings.CHUNK_SIZE,
-            "chunk_overlap": settings.CHUNK_OVERLAP,
-        }
-
-        # 添加解析任务关联
-        task_config["parse_task_id"] = task_id
 
         # 创建任务数据
         task_data = {
@@ -1166,7 +1257,7 @@ class VectorStoreBuilder:
             "parse_task_id": task_id,
             "status": "PENDING",
             "progress": 0,
-            "config": task_config,
+            "config": config,
             "processed_files": [],
             "total_files": 0,
         }
@@ -1194,22 +1285,15 @@ class VectorStoreBuilder:
                 "error": task.error,
                 "processed_files": task.processed_files,
                 "total_files": task.total_files,
+                "total_nodes": task.total_nodes,
+                "config": task.config,
+                "index_id": task.index_id,
             }
 
             if task.started_at:
                 update_data["started_at"] = task.started_at
             if task.completed_at:
                 update_data["completed_at"] = task.completed_at
-
-            # 如果任务完成，保存索引信息
-            if task.status == TaskStatus.COMPLETED and task.result:
-                update_data["index_id"] = task.result.get("index_id")
-                update_data["total_documents"] = task.result.get("stats", {}).get(
-                    "total_documents", 0
-                )
-                update_data["total_nodes"] = task.result.get("stats", {}).get(
-                    "total_nodes", 0
-                )
 
             self.task_dao.update_vector_store_task(task.task_id, update_data)
             logger.debug(f"Vector store task {task.task_id} status updated in database")

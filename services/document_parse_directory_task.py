@@ -30,9 +30,9 @@ class DocumentParseDirectoryTask(DocumentParseTask):
         # 创建主任务ID
         main_task_id = str(uuid.uuid4())
         
-        # 递归获取所有支持的文件 TODO 增加排除目录，走配置
+        # 获取目录下所有支持的一级文件
         supported_files = []
-        for file_path in directory.rglob("*"):
+        for file_path in directory.glob("*"):
             if file_path.is_file() and file_path.suffix.lower() in settings.SUPPORTED_FORMATS:
                 supported_files.append(str(file_path))
         

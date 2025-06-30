@@ -7,7 +7,7 @@ import re
 import json
 from typing import Dict, List, Tuple, Any
 from pathlib import Path
-import logging
+import hashlib
 
 # 导入Docling的Document类型
 from docling.datamodel.document import DoclingDocument
@@ -394,7 +394,8 @@ class DocumentDoclingProcessor(BaseDocumentProcessor):
         """
         # 校验任务状态
         if parse_task.status != TaskStatus.COMPLETED:
-            raise ValueError(f"Parse task {parse_task.task_id} is not completed.")
+            logger.error(f"Parse task {parse_task.task_id} is not completed.")
+            return []
 
         # 只处理子任务
         if parse_task.subtasks:
@@ -419,28 +420,35 @@ class DocumentDoclingProcessor(BaseDocumentProcessor):
             if content_file.exists():
                 # 读取markdown内容
                 content = content_file.read_text(encoding='utf-8')
+
+                # 构建文件内容的md5
+                content_md5 = hashlib.md5(content.encode('utf-8')).hexdigest()
+
                 # 初始元数据
                 metadata = {
                     "source_file": str(content_json_path),
                     "original_file_path": parse_task.file_path,
                     "file_size": parse_task.file_size,
-                    "mime_type": parse_task.mime_type
+                    "mime_type": parse_task.mime_type,
                 }
                 content_json_data = None
                 if content_json_path.exists():
                     try:
                         with open(content_json_path, 'r', encoding='utf-8') as f:
-                            content_json_data = json.load(f)
+                            json_content = f.read()
+                            # 构建json内容的md5
+                            content_md5 = hashlib.md5(json_content.encode('utf-8')).hexdigest()
+                            content_json_data = json.loads(json_content)
                     except json.JSONDecodeError:
                         logger.warning(f"Failed to decode JSON for {content_json_path}")
                 
                 # 优先使用markdown来作为文档内容
                 if content:
                     metadata['file_type'] = '.md'
-                    doc = Document(text=content, metadata=metadata)
-                    metadata['file_type'] = '.json'
+                    doc = Document(text=content, metadata=metadata, doc_id=content_md5)
                 else:
-                    doc = Document(text=json.dumps(content_json_data, ensure_ascii=False), metadata=metadata)
+                    metadata['file_type'] = '.json'
+                    doc = Document(text=json.dumps(content_json_data, ensure_ascii=False), metadata=metadata,doc_id=content_md5)
                 documents.append(doc)
                     
         except Exception as e:

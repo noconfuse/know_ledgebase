@@ -56,9 +56,12 @@ class DocumentParser:
     ) -> str:
         """解析目录下的所有文件并返回任务ID"""
         task_obj = DocumentParseDirectoryTask.create_parse_directory_task(directory_path, config)
+        asyncio.create_task(self._execute_parse_directory_task(task_obj))
+        return task_obj.task_id
+
+    async def _execute_parse_directory_task(self, task_obj: ParseTask):
         parse_task = DocumentParseDirectoryTask(task_obj.task_id)
         await parse_task.execute_parse_directory_task(self.executor)
-        return task_obj.task_id
 
     async def parse_document(
         self, 

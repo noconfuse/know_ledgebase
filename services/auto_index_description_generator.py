@@ -46,9 +46,6 @@ class AutoIndexDescriptionGenerator:
 - 节点数量：{node_count}
 - 主要关键词：{top_keywords}
 - 文档类型分布：{doc_types}
-- 法律领域分布：{legal_domains}
-- 难度等级分布：{difficulty_levels}
-- 重要性等级分布：{importance_levels}
 
 样本内容摘要：
 {sample_summaries}
@@ -94,7 +91,7 @@ class AutoIndexDescriptionGenerator:
             retriever = index.as_retriever(similarity_top_k=sample_size)
             
             # 使用一个通用查询来获取代表性节点
-            sample_query = "法律 条文 规定 适用 责任 处罚 合同 权利 义务"
+            sample_query = "内容 摘要 信息 文档 主题"
             nodes = retriever.retrieve(sample_query)
             
             if not nodes:
@@ -106,13 +103,10 @@ class AutoIndexDescriptionGenerator:
             all_summaries = []
             all_titles = []
             doc_types = []
-            legal_domains = []
-            difficulty_levels = []
-            importance_levels = []
-            
+
             for node in nodes:
                 metadata = node.metadata if hasattr(node, 'metadata') else {}
-                
+
                 # 提取关键词
                 keywords = metadata.get('excerpt_keywords', '')
                 if keywords:
@@ -120,46 +114,25 @@ class AutoIndexDescriptionGenerator:
                         all_keywords.extend([k.strip() for k in keywords.split(',') if k.strip()])
                     elif isinstance(keywords, list):
                         all_keywords.extend([str(k).strip() for k in keywords if str(k).strip()])
-                
+
                 # 提取摘要
                 summary = metadata.get('section_summary', '')
                 if summary:
                     all_summaries.append(summary)
-                
+
                 # 提取标题
                 title = metadata.get('document_title', '')
                 if title:
                     all_titles.append(title)
-                
+
                 # 提取文档类型
                 doc_type = metadata.get('document_type', '')
                 if doc_type:
                     doc_types.append(doc_type)
-                
-                # 提取法律领域
-                legal_domain = metadata.get('legal_domain', '')
-                if legal_domain:
-                    if isinstance(legal_domain, str):
-                        legal_domains.extend([d.strip() for d in legal_domain.split(',') if d.strip()])
-                    elif isinstance(legal_domain, list):
-                        legal_domains.extend([str(d).strip() for d in legal_domain if str(d).strip()])
-                
-                # 提取难度等级
-                difficulty = metadata.get('difficulty_level', '')
-                if difficulty:
-                    difficulty_levels.append(difficulty)
-                
-                # 提取重要性等级
-                importance = metadata.get('importance_level', '')
-                if importance:
-                    importance_levels.append(importance)
-            
+
             # 统计分析
             top_keywords = [item[0] for item in Counter(all_keywords).most_common(10)]
             doc_type_dist = dict(Counter(doc_types).most_common(5))
-            legal_domain_dist = dict(Counter(legal_domains).most_common(5))
-            difficulty_dist = dict(Counter(difficulty_levels))
-            importance_dist = dict(Counter(importance_levels))
             
             # 选择代表性摘要和标题
             sample_summaries = all_summaries[:5] if all_summaries else []
@@ -170,9 +143,6 @@ class AutoIndexDescriptionGenerator:
                 'node_count': len(nodes),
                 'top_keywords': top_keywords,
                 'doc_types': doc_type_dist,
-                'legal_domains': legal_domain_dist,
-                'difficulty_levels': difficulty_dist,
-                'importance_levels': importance_dist,
                 'sample_summaries': sample_summaries,
                 'sample_titles': sample_titles
             }
@@ -191,9 +161,6 @@ class AutoIndexDescriptionGenerator:
             'node_count': 0,
             'top_keywords': [],
             'doc_types': {},
-            'legal_domains': {},
-            'difficulty_levels': {},
-            'importance_levels': {},
             'sample_summaries': [],
             'sample_titles': []
         }
@@ -221,22 +188,16 @@ class AutoIndexDescriptionGenerator:
                 'node_count': analysis['node_count'],
                 'top_keywords': ', '.join(analysis['top_keywords'][:10]),
                 'doc_types': ', '.join([f"{k}({v})" for k, v in analysis['doc_types'].items()]),
-                'legal_domains': ', '.join([f"{k}({v})" for k, v in analysis['legal_domains'].items()]),
-                'difficulty_levels': ', '.join([f"{k}({v})" for k, v in analysis['difficulty_levels'].items()]),
-                'importance_levels': ', '.join([f"{k}({v})" for k, v in analysis['importance_levels'].items()]),
                 'sample_summaries': '\n'.join([f"- {s[:100]}..." for s in analysis['sample_summaries'][:3]]),
                 'sample_titles': '\n'.join([f"- {t}" for t in analysis['sample_titles'][:5]])
             }
-            
+
             # 使用LLM生成描述
             description_result = self.program(
                 doc_count=formatted_analysis['doc_count'],
                 node_count=formatted_analysis['node_count'],
                 top_keywords=formatted_analysis['top_keywords'],
                 doc_types=formatted_analysis['doc_types'],
-                legal_domains=formatted_analysis['legal_domains'],
-                difficulty_levels=formatted_analysis['difficulty_levels'],
-                importance_levels=formatted_analysis['importance_levels'],
                 sample_summaries=formatted_analysis['sample_summaries'],
                 sample_titles=formatted_analysis['sample_titles']
             )
@@ -256,25 +217,20 @@ class AutoIndexDescriptionGenerator:
         node_count = analysis.get('node_count', 0)
         top_keywords = analysis.get('top_keywords', [])
         doc_types = analysis.get('doc_types', {})
-        legal_domains = analysis.get('legal_domains', {})
-        
+
         # 构建简单的描述文本
         description_parts = [
             f"该知识库索引包含{doc_count}个文档和{node_count}个文本节点",
         ]
-        
+
         if top_keywords:
             keywords_str = '、'.join(top_keywords[:5])
             description_parts.append(f"主要涵盖{keywords_str}等主题")
-        
+
         if doc_types:
             types_str = '、'.join(list(doc_types.keys())[:3])
             description_parts.append(f"包含{types_str}等类型的文档")
-        
-        if legal_domains:
-            domains_str = '、'.join(list(legal_domains.keys())[:3])
-            description_parts.append(f"涉及{domains_str}等法律领域")
-        
-        description_parts.append("适用于法律咨询、案例研究、合规检查等多种应用场景，为律师、法务人员、法律学生等用户提供专业的法律知识检索服务")
-        
+
+        description_parts.append("适用于一般性的知识问答、内容检索和信息查询等多种应用场景，为用户提供全面的信息检索服务")
+
         return '，'.join(description_parts) + '。'

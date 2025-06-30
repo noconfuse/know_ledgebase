@@ -9,239 +9,394 @@
 """
 
 import logging
+import asyncio
+import re
 from typing import List, Dict, Sequence, Any, Optional
-from pydantic import BaseModel, Field
+from tenacity import retry, stop_after_attempt, wait_fixed
+from llama_index.core.llms.llm import LLM
+from pydantic import BaseModel, Field, ValidationError
 from llama_index.core.extractors import BaseExtractor
 from llama_index.core.program import LLMTextCompletionProgram
-from llama_index.core.extractors import PydanticProgramExtractor
-from llama_index.core.schema import BaseNode, TextNode, Document
+from llama_index.core.schema import BaseNode
+from llama_index.core.output_parsers import ChainableOutputParser, PydanticOutputParser
+
+from models.metadata_models import DocumentLevelMetadata, ChunkLevelMetadata
+from services.metadata_cache_manager import MetadataCacheManager
+from config import settings
 
 logger = logging.getLogger(__name__)
 
 
-class DocumentLevelMetadata(BaseModel):
-    """文档级元数据模型 - 每个文档只提取一次"""
+# 动态模板生成函数
+def _create_legal_document_template() -> str:
+    """为法律文档创建基于模型字段的文档级提取模板"""
+    from models.metadata_models import DocumentLevelMetadata
     
-    # 文档整体属性
-    document_type: str = Field(
-        ...,
-        description="文档类型分类，如：法律条文、司法解释、行政法规、合同条款、案例分析、理论文章、操作指南等"
-    )
+    fields_desc = []
+    for field_name, model_field in DocumentLevelMetadata.model_fields.items():
+        fields_desc.append(f"- **{field_name}**: {model_field.description}")
     
-    difficulty_level: str = Field(
-        ...,
-        description="内容难度等级：初级（基础概念）、中级（实务应用）、高级（复杂理论）"
-    )
-    
-    legal_domain: List[str] = Field(
-        ...,
-        description="法律领域分类，如：民法、刑法、行政法、商法、劳动法、知识产权法等，最多3个"
-    )
-    
-    target_audience: List[str] = Field(
-        ...,
-        description="目标受众，如：律师、法官、企业法务、普通公民、学生等"
-    )
-    
-    importance_level: str = Field(
-        ...,
-        description="重要性等级：核心（基础重要条文）、重要（常用条文）、一般（特定情况适用）"
-    )
-    
-    applicable_scenarios: List[str] = Field(
-        ...,
-        description="适用场景列表，描述该内容在哪些具体情况下会被使用，如：合同纠纷、刑事案件、行政处罚、企业合规等，最多3个"
-    )
-    
-    related_articles: List[str] = Field(
-        default_factory=list,
-        description="相关法条或条款，提取文中提到的其他法律条文、司法解释等"
-    )
+    return f"""
+请根据以下法律文档内容，提取文档级的元数据信息。
 
-
-class ChunkLevelMetadata(BaseModel):
-    """chunk级元数据模型 - 每个chunk都会提取"""
-    
-    title: str = Field(
-        ..., 
-        description="chunk标题，应该简洁准确地概括chunk内容。对于法律条文，格式如：第X条 关于XXX的规定"
-    )
-    
-    keywords: List[str] = Field(
-        ..., 
-        description="关键词列表，提取3-6个最重要的关键词。重点提取：法律概念、适用范围、责任主体、处罚措施、法律术语等"
-    )
-    
-    # 可选的chunk级元数据（根据chunk大小决定是否提取）
-    summary: Optional[str] = Field(
-        None,
-        description="chunk摘要，仅对较长的chunk提取。对于法律条文，应概括条文的适用情形、法律后果、关键要素"
-    )
-    
-    questions_answered: Optional[List[str]] = Field(
-        None,
-        description="问答对列表，仅对较长的chunk提取。生成2-3个这段文本可以回答的问题"
-    )
-    
-    practical_tips: Optional[List[str]] = Field(
-        None,
-        description="实务要点或注意事项，仅对包含实务内容的chunk提取"
-    )
-
-
-class SmartMetadataExtractor(BaseExtractor):
-    """智能元数据提取器"""
-    
-    # Pydantic 字段声明
-    llm: Any = Field(description="语言模型实例")
-    min_chunk_size_for_summary: int = Field(default=500, description="提取摘要的最小chunk大小")
-    min_chunk_size_for_qa: int = Field(default=300, description="提取问答对的最小chunk大小")
-    max_keywords: int = Field(default=5, description="最大关键词数量")
-    num_questions: int = Field(default=3, description="问答对数量")
-    show_progress: bool = Field(default=True, description="是否显示进度")
-    extract_mode: str = Field(default="enhanced", description="提取模式")
-    document_metadata_cache: Dict[str, Any] = Field(default_factory=dict, description="文档级元数据缓存")
-    document_template: str = Field(default="", description="文档级元数据提取模板")
-    chunk_template: str = Field(default="", description="chunk级元数据提取模板")
-    document_program: Optional[Any] = Field(default=None, description="文档级元数据提取程序")
-    
-    def __init__(
-        self,
-        llm: Any,
-        min_chunk_size_for_summary: int = 500,  # 超过500字符才提取摘要
-        min_chunk_size_for_qa: int = 300,       # 超过300字符才提取问答对
-        max_keywords: int = 5,
-        num_questions: int = 3,
-        show_progress: bool = True,
-        extract_mode: str = "enhanced",  # "basic" 或 "enhanced"
-        **kwargs
-    ):
-        """
-        初始化智能元数据提取器
-        
-        Args:
-            llm: 语言模型实例
-            min_chunk_size_for_summary: 提取摘要的最小chunk大小
-            min_chunk_size_for_qa: 提取问答对的最小chunk大小
-            max_keywords: 最大关键词数量
-            num_questions: 问答对数量
-            show_progress: 是否显示进度
-            extract_mode: 提取模式，"basic"只提取基础元数据，"enhanced"提取增强元数据
-        """
-        super().__init__(
-            llm=llm,
-            min_chunk_size_for_summary=min_chunk_size_for_summary,
-            min_chunk_size_for_qa=min_chunk_size_for_qa,
-            max_keywords=max_keywords,
-            num_questions=num_questions,
-            show_progress=show_progress,
-            extract_mode=extract_mode,
-            **kwargs
-        )
-        
-        # 初始化模板
-        self._setup_templates()
-        
-        # 创建文档级元数据提取程序
-        if self.extract_mode == "enhanced":
-            self.document_program = LLMTextCompletionProgram.from_defaults(
-                output_cls=DocumentLevelMetadata,
-                prompt_template_str=self.document_template,
-                verbose=True,
-                llm=self.llm
-            )
-        
-        logger.info(f"SmartMetadataExtractor initialized with mode={extract_mode}, min_summary_size={min_chunk_size_for_summary}, min_qa_size={min_chunk_size_for_qa}")
-    
-    def _setup_templates(self):
-        """设置提取模板"""
-        self.document_template = """
-请根据以下完整文档内容，提取文档级的元数据信息。这些信息将应用于整个文档的所有部分。请使用与原文相同的语言回答。
-
-文档内容：
+文档内容:
 ----------------
-{context_str}
+{{context_str}}
 ----------------
 
 请提取以下文档级信息：
 
-1. **文档类型**：判断文档类型，选择最合适的分类：法律条文、司法解释、行政法规、合同条款、案例分析、理论文章、操作指南、其他。
-
-2. **难度等级**：评估整体内容难度，选择：初级（基础概念，易于理解）、中级（需要一定法律基础）、高级（复杂理论或专业性强）。
-
-3. **法律领域**：确定所属的法律领域，最多3个，如：民法、刑法、行政法、商法、劳动法、知识产权法、环境法、税法等。
-
-4. **目标受众**：确定主要的目标受众群体，如：律师、法官、企业法务、普通公民、学生、政府工作人员等。
-
-5. **重要性等级**：评估重要性，选择：核心（基础重要，经常使用）、重要（较常使用）、一般（特定情况适用）。
-
-6. **适用场景**：列出最多3个具体的适用场景，如：合同纠纷、刑事案件、行政处罚、企业合规、日常咨询等。
-
-7. **相关法条**：提取文中明确提到的其他法律条文、司法解释等（如果没有则留空）。
+{chr(10).join(fields_desc)}
 
 请根据给定的结构化格式返回结果。
 """
-        
-        # chunk级元数据提取模板
-        self.chunk_template = """
-请根据以下文本片段内容，提取chunk级的元数据信息。请使用与原文相同的语言回答。
 
-文本内容：
+def _create_legal_chunk_template() -> str:
+    """为法律文档创建基于模型字段的chunk级提取模板"""
+    from models.metadata_models import ChunkLevelMetadata
+    
+    fields_desc = []
+    for field_name, model_field in ChunkLevelMetadata.model_fields.items():
+        fields_desc.append(f"- **{field_name}**: {model_field.description}")
+    
+    return f"""
+请根据以下法律文档片段内容，提取chunk级的元数据信息。
+
+文本内容:
 ----------------
+{{context_str}}
+----------------
+
+文本长度: {{text_length}} 字符
+
+请提取以下chunk级信息：
+
+{chr(10).join(fields_desc)}
+
+{{optional_fields}}
+
+请根据给定的结构化格式返回结果。
+"""
+
+def _create_policy_news_document_template() -> str:
+    """为政策新闻文档创建基于模型字段的文档级提取模板"""
+    from models.metadata_models import DocumentLevelMetadata
+    
+    fields_desc = []
+    for field_name, model_field in DocumentLevelMetadata.model_fields.items():
+        fields_desc.append(f"- **{field_name}**: {model_field.description}")
+    
+    return f"""
+请根据以下政策新闻文档内容，提取文档级的元数据信息。
+
+文档内容:
+----------------
+{{context_str}}
+----------------
+
+请提取以下文档级信息：
+
+{chr(10).join(fields_desc)}
+
+请根据给定的结构化格式返回结果。
+"""
+
+def _create_policy_news_chunk_template() -> str:
+    """为政策新闻文档创建基于模型字段的chunk级提取模板"""
+    from models.metadata_models import ChunkLevelMetadata
+    
+    fields_desc = []
+    for field_name, model_field in ChunkLevelMetadata.model_fields.items():
+        fields_desc.append(f"- **{field_name}**: {model_field.description}")
+    
+    return f"""
+请根据以下政策新闻文档片段内容，提取chunk级的元数据信息。
+
+文本内容:
+----------------
+{{context_str}}
+----------------
+
+文本长度: {{text_length}} 字符
+
+请提取以下chunk级信息：
+
+{chr(10).join(fields_desc)}
+
+{{optional_fields}}
+
+请根据给定的结构化格式返回结果。
+"""
+
+CLASSIFICATION_PROMPT_TEMPLATE = """
+Based on the content of the document below, classify it into one of the following categories: 'legal_document' or 'policy_news'.
+Return only the category name.
+
+---
 {context_str}
+---
+
+Category: """
+
+class SmartMetadataExtractor(BaseExtractor):
+    """智能元数据提取器"""
+    
+    llm: LLM = Field(description="语言模型实例")
+    min_chunk_size_for_summary: int = Field(default=512, description="生成摘要的最小chunk大小")
+    min_chunk_size_for_qa: int = Field(default=1024, description="生成问答对的最小chunk大小")
+    max_keywords: int = Field(default=5, description="要提取的最大关键词数")
+    document_metadata_cache: Dict[str, Any] = Field(default_factory=dict, description="文档级元数据缓存（内存）")
+    persistent_cache_manager: Optional[MetadataCacheManager] = Field(default=None, description="持久化缓存管理器")
+
+    def __init__(self, llm: Any, min_chunk_size_for_summary: int = 512, min_chunk_size_for_qa: int = 1024, max_keywords: int = 5, enable_persistent_cache: bool = True, cache_dir: str = "cache/metadata", **kwargs):
+        # 初始化持久化缓存管理器
+        persistent_cache_manager = MetadataCacheManager(cache_dir) if enable_persistent_cache else None
+        
+        super().__init__(
+            llm=llm, 
+            min_chunk_size_for_summary=min_chunk_size_for_summary, 
+            min_chunk_size_for_qa=min_chunk_size_for_qa, 
+            max_keywords=max_keywords, 
+            persistent_cache_manager=persistent_cache_manager,
+            **kwargs
+        )
+
+    def _create_default_chunk_template(self) -> str:
+        """为chunk级元数据创建默认的通用提取模板"""
+        
+        # 从Pydantic模型中动态生成字段描述
+        fields_desc = []
+        for field_name, model_field in ChunkLevelMetadata.model_fields.items():
+            # 排除可选字段，它们将由 _create_chunk_program 动态添加
+            if model_field.is_required():
+                fields_desc.append(f"- **{field_name}**: {model_field.description}")
+        
+        return f"""
+请根据以下文本片段内容，提取chunk级的元数据信息。
+
+文本内容:
+----------------
+{{context_str}}
 ----------------
 
-文本长度：{text_length} 字符
+文本长度: {{text_length}} 字符
 
-请提取以下信息：
+请提取以下核心信息：
 
-1. **标题**：提取一个简洁准确的标题。对于法律条文，请提取条文编号和条文主题，格式如：第X条 关于XXX的规定。
+{chr(10).join(fields_desc)}
 
-2. **关键词**：提取{max_keywords}个最重要的关键词。重点提取：法律概念、适用范围、责任主体、处罚措施、法律术语等。避免使用停用词。
+{{optional_fields}}
 
-{optional_fields}
+请根据给定的结构化格式返回结果。
+"""
+
+    def _create_default_document_template(self) -> str:
+        """为文档级元数据创建默认的通用提取模板"""
+        
+        # 从Pydantic模型中动态生成字段描述
+        fields_desc = []
+        for field_name, model_field in DocumentLevelMetadata.model_fields.items():
+            fields_desc.append(f"- **{field_name}**: {model_field.description}")
+        
+        return f"""
+请根据以下完整文档内容，提取文档级的元数据信息。这些信息将应用于整个文档的所有部分。
+
+文档内容:
+----------------
+{{context_str}}
+----------------
+
+请提取以下文档级信息：
+
+{chr(10).join(fields_desc)}
 
 请根据给定的结构化格式返回结果。
 """
     
-    def _extract_document_metadata(self, document_text: str, doc_id: str) -> Dict[str, Any]:
-        """提取文档级元数据"""
+
+    
+    async def _classify_and_extract(self, document_text: str, doc_id: str) -> Dict[str, Any]:
+        """分类并提取文档级元数据"""
+        # 1. 首先检查内存缓存
         if doc_id in self.document_metadata_cache:
+            logger.debug(f"Memory cache hit for doc_id: {doc_id}")
             return self.document_metadata_cache[doc_id]
         
-        if self.extract_mode != "enhanced":
-            # 基础模式不提取文档级元数据
-            return {}
-        
-        try:
-            logger.info(f"Extracting document-level metadata for document {doc_id}")
-            
-            # 如果文档太长，只取前2000字符进行文档级分析
-            analysis_text = document_text[:2000] if len(document_text) > 2000 else document_text
-            
-            result = self.document_program(
-                context_str=analysis_text
+        # 2. 检查持久化缓存
+        if self.persistent_cache_manager:
+            cached_metadata = self.persistent_cache_manager.get_cached_metadata(
+                doc_id=doc_id, 
+                content=document_text
             )
+            if cached_metadata:
+                # 将持久化缓存加载到内存缓存
+                self.document_metadata_cache[doc_id] = cached_metadata
+                logger.info(f"Persistent cache hit for doc_id: {doc_id}")
+                return cached_metadata
+
+        # 1. 分类文档（添加错误处理）
+        try:
+            classification_prompt = CLASSIFICATION_PROMPT_TEMPLATE.format(
+                context_str=document_text[:4000]  # 使用片段进行分类
+            )
+            # 添加API请求间隔控制，避免频率限制
+            await asyncio.sleep(settings.llm_model_settings.API_REQUEST_INTERVAL)
             
-            doc_metadata = {
-                "document_type": result.document_type,
-                "difficulty_level": result.difficulty_level,
-                "legal_domain": result.legal_domain,
-                "target_audience": result.target_audience,
-                "importance_level": result.importance_level,
-                "applicable_scenarios": result.applicable_scenarios,
-                "related_articles": result.related_articles,
+            response = await self.llm.acomplete(classification_prompt)
+            category = response.text.strip().lower()
+        except Exception as e:
+            logger.warning(f"Document classification failed for {doc_id}: {e}")
+            logger.warning("Using default 'generic' category due to LLM API error")
+            category = "generic"
+
+        # 2. 选择模板
+        if "legal" in category:
+            doc_template = _create_legal_document_template()
+            chunk_template = _create_legal_chunk_template()
+            category_name = "legal_document"
+        elif "policy" in category:
+            doc_template = _create_policy_news_document_template()
+            chunk_template = _create_policy_news_chunk_template()
+            category_name = "policy_news"
+        else:
+            doc_template = self._create_default_document_template()
+            chunk_template = self._create_default_chunk_template()
+            category_name = "generic"
+
+        # 3. 提取文档级元数据
+        try:
+            document_program = LLMTextCompletionProgram.from_defaults(
+                output_cls=DocumentLevelMetadata,
+                prompt_template_str=doc_template,
+                llm=self.llm,
+                verbose=True,
+            )
+            # 添加API请求间隔控制，避免频率限制
+            await asyncio.sleep(settings.llm_model_settings.API_REQUEST_INTERVAL)
+            
+            result = await document_program.acall(context_str=document_text)
+            doc_metadata = result.dict()
+            doc_metadata["document_category"] = category_name
+            
+            # 缓存结果，包括模板
+            cache_data = {
+                "metadata": doc_metadata,
+                "chunk_template": chunk_template,
             }
             
-            # 缓存结果
-            self.document_metadata_cache[doc_id] = doc_metadata
-            logger.info(f"Document-level metadata extracted successfully for {doc_id}")
+            # 保存到内存缓存
+            self.document_metadata_cache[doc_id] = cache_data
             
-            return doc_metadata
+            # 保存到持久化缓存
+            if self.persistent_cache_manager:
+                self.persistent_cache_manager.save_metadata_to_cache(
+                    doc_id=doc_id,
+                    metadata=cache_data,
+                    content=document_text
+                )
             
+            logger.info(f"Document-level metadata extracted and cached (memory + persistent) for {doc_id}")
+            return cache_data
+
         except Exception as e:
             logger.error(f"Error extracting document metadata for {doc_id}: {e}")
-            return {}
+            
+            # 记录详细的失败日志
+            import traceback
+            traceback_info = traceback.format_exc()
+            self._log_failed_document(
+                doc_id=doc_id,
+                document_text=document_text,
+                category=category_name,
+                error=e,
+                traceback_info=traceback_info
+            )
+            
+            # 检查是否是API响应格式错误
+            if "choices" in str(e) or "KeyError" in str(e):
+                logger.warning(f"LLM API response format error detected: {e}")
+                logger.warning("This is likely due to API timeout or malformed response")
+            
+            # 返回包含基本信息的默认元数据
+            fallback_metadata = {
+                "document_id": doc_id,
+                "document_summary": "元数据提取失败 - API响应异常",
+                "document_category": category_name,
+                "extraction_failed": True,
+                "error_message": str(e)
+            }
+            
+            cache_data = {
+                "metadata": fallback_metadata,
+                "chunk_template": chunk_template,
+            }
+            
+            # 即使失败也缓存结果，避免重复尝试
+            self.document_metadata_cache[doc_id] = cache_data
+            logger.warning(f"Using fallback metadata for {doc_id} due to extraction failure")
+            
+            return cache_data
+    
+    def clear_cache(self, doc_id: str = None, include_chunks: bool = True, include_failed_logs: bool = False):
+        """清除缓存
+        
+        Args:
+            doc_id: 要清除的文档ID，如果为None则清除所有缓存
+            include_chunks: 是否同时清除chunk级别的缓存
+            include_failed_logs: 是否同时清除失败日志
+        """
+        if doc_id:
+            # 清除指定文档的缓存
+            if doc_id in self.document_metadata_cache:
+                del self.document_metadata_cache[doc_id]
+                logger.info(f"Memory cache cleared for doc_id: {doc_id}")
+            
+            if self.persistent_cache_manager:
+                self.persistent_cache_manager.clear_cache(doc_id)
+            
+            # 清除指定文档的失败日志
+            if include_failed_logs:
+                self._clear_failed_document_logs(doc_id)
+        else:
+            # 清除所有缓存
+            self.document_metadata_cache.clear()
+            logger.info("All memory cache cleared")
+            
+            if self.persistent_cache_manager:
+                self.persistent_cache_manager.clear_cache()
+                if include_chunks:
+                    self.persistent_cache_manager.clear_chunk_cache()
+            
+            # 清除所有失败日志
+            if include_failed_logs:
+                self._clear_all_failed_logs(include_chunks)
+            
+            cache_type = "document and chunk caches" if include_chunks else "document cache"
+            log_type = " and failed logs" if include_failed_logs else ""
+            logger.info(f"All {cache_type}{log_type} cleared")
+    
+    def get_cache_stats(self) -> Dict[str, Any]:
+        """获取缓存统计信息
+        
+        Returns:
+            缓存统计信息
+        """
+        stats = {
+            'memory_cache': {
+                'total_items': len(self.document_metadata_cache),
+                'doc_ids': list(self.document_metadata_cache.keys())
+            }
+        }
+        
+        if self.persistent_cache_manager:
+            stats['persistent_cache'] = self.persistent_cache_manager.get_cache_stats()
+            stats['chunk_cache'] = self.persistent_cache_manager.get_chunk_cache_stats()
+        
+        # 添加失败统计信息
+        stats['failed_documents'] = self.get_failed_documents_summary()
+        stats['failed_chunks'] = self.get_failed_chunks_summary()
+        
+        return stats
     
     def _should_extract_summary(self, text_length: int) -> bool:
         """判断是否应该提取摘要"""
@@ -251,7 +406,696 @@ class SmartMetadataExtractor(BaseExtractor):
         """判断是否应该提取问答对"""
         return text_length >= self.min_chunk_size_for_qa
     
-    def _create_chunk_program(self, extract_summary: bool, extract_qa: bool) -> LLMTextCompletionProgram:
+    def _generate_failed_chunk_identifier(self, doc_id: str, chunk_index: int, text_content: str) -> str:
+        """生成失败chunk的唯一标识符，用于匹配和删除失败记录
+        
+        Args:
+            doc_id: 文档ID
+            chunk_index: chunk索引
+            text_content: chunk文本内容
+            
+        Returns:
+            唯一标识符字符串
+        """
+        import hashlib
+        import os
+        
+        # 使用文档ID、chunk索引和文本内容的hash生成唯一标识
+        content_hash = hashlib.md5(text_content.encode('utf-8')).hexdigest()[:8]
+        safe_doc_name = os.path.basename(doc_id).replace("/", "_").replace("\\", "_")
+        return f"chunk_{chunk_index}_{safe_doc_name[:30]}_{content_hash}"
+    
+    def _log_failed_document(self, doc_id: str, document_text: str, category: str,
+                           error: Exception, traceback_info: str) -> None:
+        """记录失败的文档级元数据提取到本地日志目录
+        
+        Args:
+            doc_id: 文档ID
+            document_text: 文档文本内容
+            category: 文档分类
+            error: 错误信息
+            traceback_info: 错误堆栈信息
+        """
+        try:
+            import json
+            import os
+            from datetime import datetime
+            import hashlib
+            
+            # 创建失败日志目录
+            failed_docs_dir = "logs/failed_documents"
+            os.makedirs(failed_docs_dir, exist_ok=True)
+            
+            # 生成时间戳和唯一标识符
+            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+            content_hash = hashlib.md5(document_text.encode('utf-8')).hexdigest()[:8]
+            safe_doc_name = os.path.basename(doc_id).replace("/", "_").replace("\\", "_")
+            doc_identifier = f"doc_{safe_doc_name[:30]}_{content_hash}"
+            
+            # 构建失败记录
+            failed_record = {
+                "timestamp": datetime.now().isoformat(),
+                "doc_id": doc_id,
+                "doc_identifier": doc_identifier,
+                "document_category": category,
+                "text_length": len(document_text),
+                "error_type": type(error).__name__,
+                "error_message": str(error),
+                "traceback": traceback_info,
+                "text_content": document_text[:5000] + "..." if len(document_text) > 5000 else document_text,  # 保存更多内容用于调试
+                "text_preview": document_text[:500] + "..." if len(document_text) > 500 else document_text
+            }
+            
+            # 生成文件名
+            filename = f"{timestamp}_{doc_identifier}.json"
+            filepath = os.path.join(failed_docs_dir, filename)
+            
+            # 写入失败记录
+            with open(filepath, 'w', encoding='utf-8') as f:
+                json.dump(failed_record, f, ensure_ascii=False, indent=2)
+            
+            logger.info(f"Failed document logged to: {filepath}")
+            
+        except Exception as log_error:
+            logger.error(f"Failed to log failed document: {log_error}")
+    
+    def _log_failed_chunk(self, doc_id: str, chunk_index: int, text_content: str,
+                         text_length: int, extract_config: Dict[str, Any], 
+                         error: Exception, traceback_info: str) -> None:
+        """记录失败的chunk到本地日志目录
+        
+        Args:
+            doc_id: 文档ID
+            chunk_index: chunk索引
+            text_content: chunk文本内容
+            text_length: 文本长度
+            extract_config: 提取配置
+            error: 错误信息
+            traceback_info: 错误堆栈信息
+        """
+        try:
+            import json
+            import os
+            from datetime import datetime
+            
+            # 创建失败日志目录
+            failed_chunks_dir = "logs/failed_chunks"
+            os.makedirs(failed_chunks_dir, exist_ok=True)
+            
+            # 生成时间戳和唯一标识符
+            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+            chunk_identifier = self._generate_failed_chunk_identifier(doc_id, chunk_index, text_content)
+            
+            # 构建失败记录
+            failed_record = {
+                "timestamp": datetime.now().isoformat(),
+                "doc_id": doc_id,
+                "chunk_index": chunk_index,
+                "chunk_identifier": chunk_identifier,  # 添加唯一标识符
+                "text_length": text_length,
+                "extract_config": extract_config,
+                "error_type": type(error).__name__,
+                "error_message": str(error),
+                "traceback": traceback_info,
+                "text_content": text_content[:2000] + "..." if len(text_content) > 2000 else text_content,  # 限制长度避免文件过大
+                "text_preview": text_content[:200] + "..." if len(text_content) > 200 else text_content  # 提供预览
+            }
+            
+            # 生成文件名（使用唯一标识符）
+            filename = f"{timestamp}_{chunk_identifier}.json"
+            filepath = os.path.join(failed_chunks_dir, filename)
+            
+            # 写入失败记录
+            with open(filepath, 'w', encoding='utf-8') as f:
+                json.dump(failed_record, f, ensure_ascii=False, indent=2)
+            
+            logger.info(f"Failed chunk logged to: {filepath}")
+            
+        except Exception as log_error:
+            logger.error(f"Failed to log failed chunk: {log_error}")
+    
+    def _remove_failed_chunk_record(self, doc_id: str, chunk_index: int, text_content: str) -> None:
+        """删除成功提取后的失败记录
+        
+        Args:
+            doc_id: 文档ID
+            chunk_index: chunk索引
+            text_content: chunk文本内容
+        """
+        try:
+            import os
+            import json
+            import glob
+            
+            failed_chunks_dir = "logs/failed_chunks"
+            if not os.path.exists(failed_chunks_dir):
+                return
+            
+            # 生成要查找的chunk标识符
+            chunk_identifier = self._generate_failed_chunk_identifier(doc_id, chunk_index, text_content)
+            
+            # 查找匹配的失败记录文件
+            pattern = os.path.join(failed_chunks_dir, f"*{chunk_identifier}.json")
+            matching_files = glob.glob(pattern)
+            
+            # 删除找到的失败记录文件
+            for filepath in matching_files:
+                try:
+                    # 验证文件内容确保是正确的记录
+                    with open(filepath, 'r', encoding='utf-8') as f:
+                        record = json.load(f)
+                        if (record.get('doc_id') == doc_id and 
+                            record.get('chunk_index') == chunk_index and
+                            record.get('chunk_identifier') == chunk_identifier):
+                            os.remove(filepath)
+                            logger.info(f"Removed failed chunk record: {filepath}")
+                        else:
+                            logger.warning(f"Failed chunk record mismatch, skipping: {filepath}")
+                except Exception as file_error:
+                    logger.error(f"Error processing failed chunk record {filepath}: {file_error}")
+            
+            if not matching_files:
+                logger.debug(f"No failed chunk record found for {chunk_identifier}")
+                
+        except Exception as e:
+            logger.error(f"Error removing failed chunk record: {e}")
+    
+    def _clear_failed_document_logs(self, doc_id: str) -> None:
+        """清除指定文档的失败日志
+        
+        Args:
+            doc_id: 文档ID
+        """
+        try:
+            import os
+            import json
+            import glob
+            
+            failed_docs_dir = "logs/failed_documents"
+            if not os.path.exists(failed_docs_dir):
+                return
+            
+            # 查找匹配的失败记录文件
+            pattern = os.path.join(failed_docs_dir, "*.json")
+            matching_files = glob.glob(pattern)
+            
+            removed_count = 0
+            for filepath in matching_files:
+                try:
+                    # 验证文件内容确保是正确的记录
+                    with open(filepath, 'r', encoding='utf-8') as f:
+                        record = json.load(f)
+                        if record.get('doc_id') == doc_id:
+                            os.remove(filepath)
+                            removed_count += 1
+                            logger.info(f"Removed failed document record: {filepath}")
+                except Exception as file_error:
+                    logger.error(f"Error processing failed document record {filepath}: {file_error}")
+            
+            if removed_count == 0:
+                logger.debug(f"No failed document records found for {doc_id}")
+            else:
+                logger.info(f"Removed {removed_count} failed document records for {doc_id}")
+                
+        except Exception as e:
+            logger.error(f"Error clearing failed document logs: {e}")
+    
+    def _clear_all_failed_logs(self, include_chunks: bool = True) -> None:
+        """清除所有失败日志
+        
+        Args:
+            include_chunks: 是否同时清除chunk失败日志
+        """
+        try:
+            import os
+            import shutil
+            
+            # 清除文档失败日志
+            failed_docs_dir = "logs/failed_documents"
+            if os.path.exists(failed_docs_dir):
+                shutil.rmtree(failed_docs_dir)
+                logger.info(f"Cleared all failed document logs from {failed_docs_dir}")
+            
+            # 清除chunk失败日志
+            if include_chunks:
+                failed_chunks_dir = "logs/failed_chunks"
+                if os.path.exists(failed_chunks_dir):
+                    shutil.rmtree(failed_chunks_dir)
+                    logger.info(f"Cleared all failed chunk logs from {failed_chunks_dir}")
+                    
+        except Exception as e:
+            logger.error(f"Error clearing all failed logs: {e}")
+    
+    def get_failed_documents_summary(self) -> Dict[str, Any]:
+        """获取失败文档的汇总信息
+        
+        Returns:
+            包含失败文档统计信息的字典
+        """
+        try:
+            import os
+            import json
+            import glob
+            from collections import defaultdict
+            
+            failed_docs_dir = "logs/failed_documents"
+            if not os.path.exists(failed_docs_dir):
+                return {
+                    "total_failed_documents": 0,
+                    "failed_by_error_type": {},
+                    "failed_by_category": {},
+                    "all_extraction_successful": True,
+                    "message": "No failed documents directory found - all extractions successful"
+                }
+            
+            # 查找所有失败记录文件
+            pattern = os.path.join(failed_docs_dir, "*.json")
+            failed_files = glob.glob(pattern)
+            
+            if not failed_files:
+                return {
+                    "total_failed_documents": 0,
+                    "failed_by_error_type": {},
+                    "failed_by_category": {},
+                    "all_extraction_successful": True,
+                    "message": "All document metadata extractions successful - no failed documents found"
+                }
+            
+            # 统计失败信息
+            failed_by_error_type = defaultdict(int)
+            failed_by_category = defaultdict(int)
+            failed_documents = []
+            
+            for filepath in failed_files:
+                try:
+                    with open(filepath, 'r', encoding='utf-8') as f:
+                        record = json.load(f)
+                        
+                        error_type = record.get('error_type', 'Unknown')
+                        category = record.get('document_category', 'Unknown')
+                        
+                        failed_by_error_type[error_type] += 1
+                        failed_by_category[category] += 1
+                        
+                        failed_documents.append({
+                            'doc_id': record.get('doc_id'),
+                            'timestamp': record.get('timestamp'),
+                            'error_type': error_type,
+                            'category': category,
+                            'text_length': record.get('text_length', 0),
+                            'error_message': record.get('error_message', '')[:200] + '...' if len(record.get('error_message', '')) > 200 else record.get('error_message', ''),
+                            'filepath': filepath
+                        })
+                        
+                except Exception as file_error:
+                    logger.error(f"Error reading failed document record {filepath}: {file_error}")
+            
+            return {
+                "total_failed_documents": len(failed_documents),
+                "failed_by_error_type": dict(failed_by_error_type),
+                "failed_by_category": dict(failed_by_category),
+                "failed_documents": failed_documents,
+                "all_extraction_successful": False,
+                "message": f"Found {len(failed_documents)} failed document metadata extractions"
+            }
+            
+        except Exception as e:
+            logger.error(f"Error getting failed documents summary: {e}")
+            return {
+                "total_failed_documents": 0,
+                "failed_by_error_type": {},
+                "failed_by_category": {},
+                "error": str(e),
+                "message": "Error occurred while retrieving failed documents summary"
+            }
+    
+    def get_failed_chunks_summary(self) -> Dict[str, Any]:
+        """获取失败chunk的汇总信息
+        
+        Returns:
+            包含失败chunk统计信息的字典
+        """
+        try:
+            import os
+            import json
+            import glob
+            from collections import defaultdict
+            
+            failed_chunks_dir = "logs/failed_chunks"
+            if not os.path.exists(failed_chunks_dir):
+                return {
+                    "total_failed_chunks": 0,
+                    "failed_by_document": {},
+                    "failed_by_error_type": {},
+                    "all_extraction_successful": True,
+                    "message": "No failed chunks directory found - all extractions successful"
+                }
+            
+            # 查找所有失败记录文件
+            pattern = os.path.join(failed_chunks_dir, "*.json")
+            failed_files = glob.glob(pattern)
+            
+            if not failed_files:
+                return {
+                    "total_failed_chunks": 0,
+                    "failed_by_document": {},
+                    "failed_by_error_type": {},
+                    "all_extraction_successful": True,
+                    "message": "All metadata extractions successful - no failed chunks found"
+                }
+            
+            # 统计失败信息
+            failed_by_document = defaultdict(list)
+            failed_by_error_type = defaultdict(int)
+            total_failed = 0
+            
+            for filepath in failed_files:
+                try:
+                    with open(filepath, 'r', encoding='utf-8') as f:
+                        record = json.load(f)
+                        doc_id = record.get('doc_id', 'unknown')
+                        chunk_index = record.get('chunk_index', 'unknown')
+                        error_type = record.get('error_type', 'Unknown')
+                        timestamp = record.get('timestamp', 'unknown')
+                        
+                        failed_by_document[doc_id].append({
+                            'chunk_index': chunk_index,
+                            'error_type': error_type,
+                            'timestamp': timestamp,
+                            'file_path': filepath
+                        })
+                        failed_by_error_type[error_type] += 1
+                        total_failed += 1
+                        
+                except Exception as file_error:
+                    logger.error(f"Error reading failed chunk record {filepath}: {file_error}")
+            
+            return {
+                "total_failed_chunks": total_failed,
+                "failed_by_document": dict(failed_by_document),
+                "failed_by_error_type": dict(failed_by_error_type),
+                "all_extraction_successful": total_failed == 0,
+                "message": f"Found {total_failed} failed chunks" if total_failed > 0 else "All extractions successful"
+            }
+            
+        except Exception as e:
+            logger.error(f"Error getting failed chunks summary: {e}")
+            return {
+                "total_failed_chunks": -1,
+                "failed_by_document": {},
+                "failed_by_error_type": {},
+                "all_extraction_successful": False,
+                "message": f"Error checking failed chunks: {e}"
+            }
+    
+    def clean_old_failed_records(self, days_old: int = 7) -> int:
+        """清理指定天数之前的失败记录
+        
+        Args:
+            days_old: 清理多少天之前的记录，默认7天
+            
+        Returns:
+            清理的文件数量
+        """
+        try:
+            import os
+            import json
+            import glob
+            from datetime import datetime, timedelta
+            
+            failed_chunks_dir = "logs/failed_chunks"
+            if not os.path.exists(failed_chunks_dir):
+                return 0
+            
+            # 计算截止时间
+            cutoff_time = datetime.now() - timedelta(days=days_old)
+            
+            # 查找所有失败记录文件
+            pattern = os.path.join(failed_chunks_dir, "*.json")
+            failed_files = glob.glob(pattern)
+            
+            cleaned_count = 0
+            for filepath in failed_files:
+                try:
+                    with open(filepath, 'r', encoding='utf-8') as f:
+                        record = json.load(f)
+                        timestamp_str = record.get('timestamp')
+                        if timestamp_str:
+                            record_time = datetime.fromisoformat(timestamp_str.replace('Z', '+00:00'))
+                            if record_time < cutoff_time:
+                                os.remove(filepath)
+                                cleaned_count += 1
+                                logger.info(f"Cleaned old failed record: {filepath}")
+                except Exception as file_error:
+                    logger.error(f"Error processing failed record {filepath}: {file_error}")
+            
+            logger.info(f"Cleaned {cleaned_count} old failed records (older than {days_old} days)")
+            return cleaned_count
+            
+        except Exception as e:
+            logger.error(f"Error cleaning old failed records: {e}")
+            return 0
+    
+    class CustomChunkOutputParser(ChainableOutputParser):
+        """自定义chunk输出解析器，处理LLM输出的JSON格式问题"""
+        
+        def __init__(self, output_cls, verbose: bool = False):
+            self.output_cls = output_cls
+            self.verbose = verbose
+            self.pydantic_parser = PydanticOutputParser(output_cls=output_cls)
+        
+        def parse(self, output: str):
+            """解析LLM输出，处理properties包装等格式问题"""
+            if self.verbose:
+                logger.debug(f"Raw LLM output: {output}")
+            
+            try:
+                # 尝试标准的Pydantic解析
+                return self.pydantic_parser.parse(output)
+            except ValidationError as e:
+                logger.warning(f"Standard Pydantic validation failed: {e}")
+                
+                # 尝试处理LLM输出被properties包装的情况
+                try:
+                    cleaned_output = self._handle_properties_wrapper(output)
+                    if cleaned_output != output:
+                        logger.info("Detected and handled properties wrapper in LLM output")
+                        return self.pydantic_parser.parse(cleaned_output)
+                except Exception as cleanup_error:
+                    logger.debug(f"Properties wrapper handling failed: {cleanup_error}")
+                
+                # 如果所有处理都失败，抛出原始ValidationError
+                logger.error(f"All parsing attempts failed for output: {output[:200]}...")
+                raise e
+        
+        def _handle_properties_wrapper(self, output: str) -> str:
+            """处理LLM输出被properties结构包装的情况"""
+            import json
+            import re
+            
+            try:
+                # 首先尝试解析为JSON
+                parsed_json = json.loads(output)
+                
+                # 检查是否数据被包装在properties字段中
+                if isinstance(parsed_json, dict) and "properties" in parsed_json:
+                    properties_content = parsed_json["properties"]
+                    if isinstance(properties_content, dict):
+                        # 检查properties内容是否像实际数据而不是schema
+                        if self._looks_like_data_not_schema(properties_content):
+                            logger.info("Extracting data from properties wrapper")
+                            return json.dumps(properties_content)
+                        else:
+                            logger.warning("Detected JSON schema format instead of data - LLM returned schema instead of actual values")
+                            # 这种情况下，LLM返回了schema而不是数据，应该抛出错误
+                            raise ValueError("LLM returned JSON schema instead of actual data")
+                
+                # 如果JSON解析成功但不是properties包装，返回原始输出
+                return output
+                
+            except json.JSONDecodeError:
+                # 如果不是有效JSON，尝试提取JSON部分
+                json_match = re.search(r'\{.*\}', output, re.DOTALL)
+                if json_match:
+                    json_str = json_match.group()
+                    try:
+                        parsed_json = json.loads(json_str)
+                        if isinstance(parsed_json, dict) and "properties" in parsed_json:
+                            properties_content = parsed_json["properties"]
+                            if isinstance(properties_content, dict) and self._looks_like_data_not_schema(properties_content):
+                                logger.info("Extracting data from properties wrapper in embedded JSON")
+                                return json.dumps(properties_content)
+                    except json.JSONDecodeError as e:
+                        logger.warning(f"JSON parsing failed for extracted content: {e}")
+                        # 尝试通过括号匹配来提取结构化字段
+                        try:
+                            cleaned_json = self._extract_json_by_brackets(json_str)
+                            if cleaned_json:
+                                parsed_json = json.loads(cleaned_json)
+                                if isinstance(parsed_json, dict):
+                                    # 检查是否有properties包装
+                                    if "properties" in parsed_json:
+                                        properties_content = parsed_json["properties"]
+                                        if isinstance(properties_content, dict) and self._looks_like_data_not_schema(properties_content):
+                                            logger.info("Successfully extracted data from properties wrapper using bracket matching")
+                                            return json.dumps(properties_content)
+                                    else:
+                                        # 直接返回解析的JSON
+                                        logger.info("Successfully extracted JSON using bracket matching")
+                                        return json.dumps(parsed_json)
+                        except (json.JSONDecodeError, Exception) as bracket_error:
+                            logger.warning(f"Bracket-based JSON extraction also failed: {bracket_error}")
+                
+                # 如果无法处理，返回原始输出
+                return output
+        
+        def _looks_like_data_not_schema(self, content: dict) -> bool:
+            """判断内容是否像实际数据而不是JSON schema"""
+            # JSON schema通常包含type, description, title等字段
+            schema_indicators = {"type", "description", "title", "items", "required", "enum"}
+            
+            for key, value in content.items():
+                if isinstance(value, dict):
+                    # 如果值是字典且包含schema指示符，可能是schema
+                    if any(indicator in value for indicator in schema_indicators):
+                        return False
+                elif isinstance(value, str):
+                    # 如果值是字符串且不是schema描述，可能是实际数据
+                    continue
+                elif isinstance(value, (list, int, float, bool)):
+                    # 如果值是基本数据类型，可能是实际数据
+                    continue
+            
+            return True
+
+        def _extract_json_by_brackets(self, json_str: str) -> Optional[str]:
+            """通过括号匹配来提取和清理JSON字符串
+            
+            Args:
+                json_str: 可能包含格式问题的JSON字符串
+                
+            Returns:
+                清理后的有效JSON字符串，如果无法修复则返回None
+            """
+            try:
+                # 移除可能的前后空白和换行符
+                json_str = json_str.strip()
+                
+                # 找到第一个 { 和最后一个 } 来确定JSON边界
+                start_idx = json_str.find('{')
+                end_idx = json_str.rfind('}')
+                
+                if start_idx == -1 or end_idx == -1 or start_idx >= end_idx:
+                    return None
+                
+                # 提取JSON部分
+                json_content = json_str[start_idx:end_idx + 1]
+                
+                # 尝试通过括号匹配来验证和修复JSON结构
+                bracket_count = 0
+                quote_count = 0
+                in_string = False
+                escape_next = False
+                valid_end = -1
+                
+                for i, char in enumerate(json_content):
+                    if escape_next:
+                        escape_next = False
+                        continue
+                        
+                    if char == '\\' and in_string:
+                        escape_next = True
+                        continue
+                        
+                    if char == '"' and not escape_next:
+                        in_string = not in_string
+                        continue
+                        
+                    if not in_string:
+                        if char == '{':
+                            bracket_count += 1
+                        elif char == '}':
+                            bracket_count -= 1
+                            if bracket_count == 0:
+                                valid_end = i
+                                break
+                
+                if valid_end > 0:
+                    # 截取到有效的结束位置
+                    cleaned_json = json_content[:valid_end + 1]
+                    
+                    # 尝试一些常见的修复
+                    cleaned_json = self._fix_common_json_issues(cleaned_json)
+                    
+                    return cleaned_json
+                    
+                return None
+                
+            except Exception as e:
+                logger.warning(f"Error in bracket-based JSON extraction: {e}")
+                return None
+        
+        def _fix_common_json_issues(self, json_str: str) -> str:
+                """修复常见的JSON格式问题
+                
+                Args:
+                    json_str: 需要修复的JSON字符串
+                    
+                Returns:
+                    修复后的JSON字符串
+                """
+                try:
+                    # 移除可能的尾随逗号
+                    json_str = re.sub(r',\s*}', '}', json_str)
+                    json_str = re.sub(r',\s*]', ']', json_str)
+                    
+                    # 逐行处理字符串值中的未转义引号
+                    lines = json_str.split('\n')
+                    fixed_lines = []
+                    
+                    for line in lines:
+                        if ':' in line and '"' in line:
+                            # 直接处理包含引号的字符串值
+                            parts = line.split(':', 1)
+                            if len(parts) == 2:
+                                key_part = parts[0]
+                                value_part = parts[1].strip()
+                                
+                                if value_part.startswith('"'):
+                                    # 处理字符串值
+                                    if value_part.count('"') > 2:  # 有未转义的引号
+                                        # 提取内容
+                                        if value_part.endswith(','):
+                                            content = value_part[1:-2]
+                                            trailing = ','
+                                        elif value_part.endswith('"'):
+                                            content = value_part[1:-1]
+                                            trailing = ''
+                                        else:
+                                            fixed_lines.append(line)
+                                            continue
+                                        
+                                        # 转义内部引号
+                                        escaped_content = content.replace('"', '\\"')
+                                        fixed_line = f'{key_part}: "{escaped_content}"{trailing}'
+                                        fixed_lines.append(fixed_line)
+                                    else:
+                                        fixed_lines.append(line)
+                                else:
+                                    fixed_lines.append(line)
+                            else:
+                                fixed_lines.append(line)
+                        else:
+                            fixed_lines.append(line)
+                    
+                    return '\n'.join(fixed_lines)
+                    
+                except Exception as e:
+                    logger.warning(f"Error fixing JSON issues: {e}")
+                    return json_str
+
+    
+    def _create_chunk_program(self, extract_summary: bool, extract_qa: bool, chunk_template: str) -> LLMTextCompletionProgram:
         """根据需要提取的字段创建chunk级提取程序"""
         
         # 动态创建Pydantic模型的字段
@@ -260,22 +1104,34 @@ class SmartMetadataExtractor(BaseExtractor):
             "keywords": List[str],
         }
         
+        # 从ChunkLevelMetadata模型中获取正确的字段描述
+        title_field = ChunkLevelMetadata.model_fields.get("title")
+        keywords_field = ChunkLevelMetadata.model_fields.get("keywords")
+        
         field_definitions = {
-            "title": Field(..., description="chunk标题，应该简洁准确地概括chunk内容"),
-            "keywords": Field(..., description="关键词列表，提取3-6个最重要的关键词"),
+            "title": Field(..., description=title_field.description if title_field else "chunk标题，应该简洁准确地概括chunk内容"),
+            "keywords": Field(..., description=keywords_field.description if keywords_field else "关键词列表，提取3-6个最重要的关键词"),
         }
         
-        optional_fields_desc = []
-        
+        optional_fields_prompt = []
+        optional_fields_desc = ""
+
         if extract_summary:
-            annotations["summary"] = str
-            field_definitions["summary"] = Field(..., description="chunk摘要，简洁概括chunk的主要内容")
-            optional_fields_desc.append("3. **摘要**：写一个简洁的摘要。对于法律条文，请概括条文的适用情形、法律后果、关键要素。")
-        
+            summary_field = ChunkLevelMetadata.model_fields.get("summary")
+            if summary_field:
+                annotations["summary"] = Optional[str]
+                field_definitions["summary"] = Field(None, description=summary_field.description)
+                optional_fields_prompt.append(f"- **summary**: {summary_field.description}")
+
         if extract_qa:
-            annotations["questions_answered"] = List[str]
-            field_definitions["questions_answered"] = Field(..., description=f"问答对列表，生成{self.num_questions}个这段文本可以回答的问题")
-            optional_fields_desc.append(f"4. **问答对**：生成{self.num_questions}个这段文本可以回答的问题。重点生成：什么情况下适用、违反后果是什么、适用主体是谁、如何执行等类型的问题。")
+            qa_field = ChunkLevelMetadata.model_fields.get("questions_answered")
+            if qa_field:
+                annotations["questions_answered"] = Optional[List[str]]
+                field_definitions["questions_answered"] = Field(None, description=qa_field.description)
+                optional_fields_prompt.append(f"- **questions_answered**: {qa_field.description}")
+
+        if optional_fields_prompt:
+            optional_fields_desc = "\n请提取以下可选信息：\n" + "\n".join(optional_fields_prompt)
         
         # 动态创建模型类
         class_dict = {
@@ -285,100 +1141,243 @@ class SmartMetadataExtractor(BaseExtractor):
         
         DynamicChunkMetadata = type("DynamicChunkMetadata", (BaseModel,), class_dict)
         
-        # 构建可选字段描述
-        optional_fields_str = "\n".join(optional_fields_desc) if optional_fields_desc else "（无额外字段需要提取）"
-        
         # 创建程序
-        template = self.chunk_template.replace("{optional_fields}", optional_fields_str)
+        template = chunk_template.replace("{optional_fields}", optional_fields_desc)
+        
+        # 使用标准的PydanticOutputParser创建程序
+        standard_parser = PydanticOutputParser(output_cls=DynamicChunkMetadata)
         
         return LLMTextCompletionProgram.from_defaults(
-            output_cls=DynamicChunkMetadata,
+            output_parser=standard_parser,
             prompt_template_str=template,
             verbose=True,
             llm=self.llm
         )
     
     async def aextract(self, nodes: Sequence[BaseNode]) -> List[Dict]:
-        """异步提取智能元数据"""
-        logger.info(f"Starting smart metadata extraction for {len(nodes)} nodes")
+        """异步提取智能元数据
         
-        metadata_list = []
+        Args:
+            nodes: 要处理的节点列表
+        """
+        logger.info(f"🚀 [METADATA EXTRACTOR] Starting smart metadata extraction for {len(nodes)} nodes")
         
-        # 按文档分组处理
+        metadata_list = [None] * len(nodes)  # 预分配列表，保持顺序
         nodes_by_doc = {}
-        for node in nodes:
+        node_indices = {}  # 记录每个节点在原始列表中的索引
+        
+        for idx, node in enumerate(nodes):
             doc_id = node.metadata.get("original_file_path", "unknown")
             if doc_id not in nodes_by_doc:
                 nodes_by_doc[doc_id] = []
+                node_indices[doc_id] = []
             nodes_by_doc[doc_id].append(node)
+            node_indices[doc_id].append(idx)
         
-        for doc_id, doc_nodes in nodes_by_doc.items():
-            logger.info(f"Processing document {doc_id} with {len(doc_nodes)} chunks")
+        total_chunks = len(nodes)
+        processed_chunks = 0
+        # 并发处理每个文档
+        import asyncio
+        progress_lock = asyncio.Lock()  # 添加锁保护计数器
+        
+        semaphore = asyncio.Semaphore(1)  # 限制并发文档数量，避免API频率限制
+        
+        async def process_document(doc_id, doc_nodes, doc_indices):
+            nonlocal processed_chunks, progress_lock
             
-            # 提取文档级元数据（仅一次）
-            if self.extract_mode == "enhanced":
-                # 合并所有chunk的文本来分析文档级元数据
+            async with semaphore:
+                logger.info(f"📄 [METADATA EXTRACTOR] Processing document {doc_id} with {len(doc_nodes)} chunks")
+                
                 full_doc_text = "\n\n".join([node.get_content() for node in doc_nodes])
-                doc_metadata = self._extract_document_metadata(full_doc_text, doc_id)
-            else:
-                doc_metadata = {}
-            
-            # 处理每个chunk
-            for i, node in enumerate(doc_nodes):
-                try:
-                    text_content = node.get_content()
-                    text_length = len(text_content)
+                cached_data = await self._classify_and_extract(full_doc_text, doc_id)
+                doc_metadata = cached_data["metadata"]
+                chunk_template = cached_data["chunk_template"]
+                
+                # 并发处理文档内的chunks
+                chunk_semaphore = asyncio.Semaphore(6)  # 限制并发chunk数量
+                
+                async def process_chunk(i, node, original_idx):
+                    nonlocal processed_chunks
                     
-                    logger.info(f"Processing chunk {i+1}/{len(doc_nodes)} (length: {text_length} chars)")
-                    
-                    # 判断是否需要提取可选字段
-                    extract_summary = self._should_extract_summary(text_length)
-                    extract_qa = self._should_extract_qa(text_length)
-                    
-                    logger.info(f"Chunk {i+1}: extract_summary={extract_summary}, extract_qa={extract_qa}")
-                    
-                    # 创建对应的提取程序
-                    chunk_program = self._create_chunk_program(extract_summary, extract_qa)
-                    
-                    # 提取chunk级元数据
-                    result = chunk_program(
-                        context_str=text_content,
-                        text_length=text_length,
-                        max_keywords=self.max_keywords
-                    )
-                    
-                    # 构建最终元数据
-                    chunk_metadata = {
-                        "title": result.title,
-                        "keywords": result.keywords,
-                    }
-                    
-                    # 添加可选字段
-                    if extract_summary and hasattr(result, "summary"):
-                        chunk_metadata["summary"] = result.summary
-                    
-                    if extract_qa and hasattr(result, "questions_answered"):
-                        chunk_metadata["questions_answered"] = result.questions_answered
-                    
-                    # 合并文档级元数据
-                    final_metadata = {**doc_metadata, **chunk_metadata}
-                    
-                    metadata_list.append(final_metadata)
-                    
-                    logger.info(f"Chunk {i+1} metadata extracted successfully")
-                    
-                except Exception as e:
-                    logger.error(f"Error extracting metadata for chunk {i+1} in document {doc_id}: {e}")
-                    # 添加基础元数据作为fallback
-                    fallback_metadata = {
-                        "title": f"Chunk {i+1}",
-                        "keywords": [],
-                        **doc_metadata
-                    }
-                    metadata_list.append(fallback_metadata)
+                    async with chunk_semaphore:
+                        try:
+                            text_content = node.get_content()
+                            text_length = len(text_content)
+                            
+                            # 检查文本是否为空或只包含空白字符
+                            if not text_content or not text_content.strip():
+                                logger.debug(f"Skipping chunk {i+1} in document {doc_id}: empty or whitespace-only content")
+                                fallback_metadata = {
+                                    "title": f"Empty Chunk {i+1}", 
+                                    "keywords": [], 
+                                    "summary": "",
+                                    "qa_pairs": [],
+                                    **doc_metadata
+                                }
+                                metadata_list[original_idx] = fallback_metadata
+                                # 空chunk直接返回，计数将在finally块中处理
+                                return
+                            
+                            extract_summary = self._should_extract_summary(text_length)
+                            extract_qa = self._should_extract_qa(text_length)
+                            
+                            # 构建chunk提取配置，用于缓存key生成
+                            extract_config = {
+                                'extract_summary': extract_summary,
+                                'extract_qa': extract_qa,
+                                'max_keywords': self.max_keywords,
+                                'min_chunk_size_for_summary': self.min_chunk_size_for_summary,
+                                'min_chunk_size_for_qa': self.min_chunk_size_for_qa
+                            }
+                            
+                            # 尝试从chunk缓存获取元数据
+                            chunk_metadata = None
+                            if self.persistent_cache_manager:
+                                chunk_metadata = self.persistent_cache_manager.get_chunk_metadata_from_cache(
+                                    text_content, extract_config
+                                )
+                            
+                            if chunk_metadata:
+                                # 从缓存加载成功，也删除可能存在的失败记录
+                                self._remove_failed_chunk_record(doc_id, i+1, text_content)
+                                logger.info(f"💾 [METADATA EXTRACTOR] Chunk {i+1}/{len(doc_nodes)} in {doc_id} - loaded from cache")
+                            else:
+                                # 缓存未命中，执行LLM提取
+                                logger.info(f"🤖 [METADATA EXTRACTOR] Chunk {i+1}/{len(doc_nodes)} in {doc_id} - calling LLM for extraction (cache miss)")
+                                chunk_program = self._create_chunk_program(extract_summary, extract_qa, chunk_template)
+                                
+                                @retry(stop=stop_after_attempt(3), wait=wait_fixed(2))
+                                async def _run_chunk_program():
+                                    try:
+                                        # 添加API请求间隔控制，避免频率限制
+                                        await asyncio.sleep(settings.llm_model_settings.API_REQUEST_INTERVAL)
+                                        
+                                        # 获取LLM的原始输出
+                                        prompt = chunk_program.prompt.format(
+                                            context_str=text_content,
+                                            text_length=text_length,
+                                            max_keywords=self.max_keywords
+                                        )
+                                        
+                                        # 直接调用LLM获取原始输出
+                                        raw_response = await self.llm.acomplete(prompt)
+                                        raw_output = raw_response.text
+                                        
+                                        # 使用我们的CustomChunkOutputParser处理原始输出
+                                        custom_parser = self.CustomChunkOutputParser(
+                                            output_cls=chunk_program.output_cls,
+                                            verbose=True
+                                        )
+                                        result = custom_parser.parse(raw_output)
+                                        
+                                        # 检查结果是否有效
+                                        if not result or not hasattr(result, 'dict'):
+                                            raise ValueError("LLM returned empty or invalid response")
+                                        return result
+                                    except Exception as e:
+                                        # 检查是否是API响应格式错误
+                                        if "choices" in str(e) or "KeyError" in str(e):
+                                            logger.warning(f"LLM API response format error in chunk extraction: {e}")
+                                            raise ValueError(f"API response format error: {e}")
+                                        # 直接抛出所有其他错误，包括ValidationError
+                                        raise
+                                
+                                try:
+                                    result = await _run_chunk_program()
+                                    chunk_metadata = result.dict()
+                                    
+                                    # 保存到chunk缓存
+                                    if self.persistent_cache_manager:
+                                        self.persistent_cache_manager.save_chunk_metadata_to_cache(
+                                            text_content, extract_config, chunk_metadata
+                                        )
+                                    
+                                    # 成功提取元数据后，删除可能存在的失败记录
+                                    self._remove_failed_chunk_record(doc_id, i+1, text_content)
+                                    
+                                    logger.info(f"✅ [METADATA EXTRACTOR] Chunk {i+1}/{len(doc_nodes)} in {doc_id} - LLM extraction successful")
+                                    
+                                except Exception as e:
+                                    import traceback
+                                    traceback_info = traceback.format_exc()
+                                    
+                                    logger.info(f"❌ [METADATA EXTRACTOR] Chunk {i+1}/{len(doc_nodes)} in {doc_id} - LLM extraction FAILED: {e}")
+                                   
+                                    logger.error(f"Error details: {traceback_info}")
+                                    
+                                    # 记录失败的chunk到本地日志
+                                    self._log_failed_chunk(
+                                        doc_id=doc_id,
+                                        chunk_index=i+1,
+                                        text_content=text_content,
+                                        text_length=text_length,
+                                        extract_config=extract_config,
+                                        error=e,
+                                        traceback_info=traceback_info
+                                    )
+                                    
+                                    # 返回一个默认的结果对象，但不缓存失败结果
+                                    chunk_metadata = {
+                                        "title": f"Chunk {i+1} (提取失败)",
+                                        "summary": "元数据提取失败 - API响应异常",
+                                        "keywords": []
+                                    }
+                                    
+                                    logger.warning(f"Using fallback metadata for chunk {i+1} in {doc_id} due to extraction failure")
+                            
+                            final_metadata = {**doc_metadata, **chunk_metadata}
+                            metadata_list[original_idx] = final_metadata
+                            
+                        except Exception as e:
+                            import traceback
+                            
+                            logger.error(f"Error extracting metadata for chunk {i+1} in document {doc_id}: {e}")
+                            logger.error(f"Error trace: {traceback.format_exc()}")
+                            
+                            # 记录失败的chunk到本地日志目录
+                            self._log_failed_chunk(
+                                doc_id=doc_id,
+                                chunk_index=i+1,
+                                text_content=text_content,
+                                text_length=text_length,
+                                extract_config=extract_config,
+                                error=e,  # 传递原始异常对象而不是字符串
+                                traceback_info=traceback.format_exc()
+                            )
+                            
+                            fallback_metadata = {"title": f"Chunk {i+1}", "keywords": [], **doc_metadata}
+                            metadata_list[original_idx] = fallback_metadata
+                        
+                        finally:
+                            async with progress_lock:
+                                processed_chunks += 1
+                                progress_percent = (processed_chunks / total_chunks) * 100
+                                logger.info(f"📊 [METADATA EXTRACTOR] Progress: {processed_chunks}/{total_chunks} chunks ({progress_percent:.1f}%) - Completed chunk {i+1}/{len(doc_nodes)} in {doc_id}")
+                
+                # 并发处理当前文档的所有chunks
+                chunk_tasks = [
+                    process_chunk(i, node, doc_indices[i]) 
+                    for i, node in enumerate(doc_nodes)
+                ]
+                await asyncio.gather(*chunk_tasks)
+                
+                logger.info(f"🎉 [METADATA EXTRACTOR] Completed processing document {doc_id} with {len(doc_nodes)} chunks")
+                logger.info(f"Completed processing document {doc_id} with {len(doc_nodes)} chunks")
         
-        logger.info(f"Smart metadata extraction completed for {len(nodes)} nodes")
-        return metadata_list
+        # 并发处理所有文档
+        doc_tasks = [
+            process_document(doc_id, doc_nodes, node_indices[doc_id])
+            for doc_id, doc_nodes in nodes_by_doc.items()
+        ]
+        
+        await asyncio.gather(*doc_tasks)
+        
+        logger.info(f"🏁 [METADATA EXTRACTOR] Smart metadata extraction completed for {len(nodes)} nodes")
+        return metadata_list  # 直接返回元数据列表
+    
+
+    
+
     
     def extract(self, nodes: Sequence[BaseNode]) -> List[Dict]:
         """同步提取智能元数据"""

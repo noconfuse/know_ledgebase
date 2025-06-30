@@ -19,12 +19,7 @@ class IndexDAO:
         db: Session, 
         index_id: str, 
         index_description: Optional[str] = None,
-        file_md5: Optional[str] = None,
-        file_path: Optional[str] = None,
-        file_name: Optional[str] = None,
-        file_size: Optional[int] = None,
-        file_extension: Optional[str] = None,
-        mime_type: Optional[str] = None,
+        origin_file_path: Optional[str] = None,
         document_count: Optional[int] = None,
         node_count: Optional[int] = None,
         vector_dimension: Optional[int] = None,
@@ -35,12 +30,7 @@ class IndexDAO:
             index_info = IndexInfo(
                 index_id=index_id,
                 index_description=index_description,
-                file_md5=file_md5,
-                file_path=file_path,
-                file_name=file_name,
-                file_size=file_size,
-                file_extension=file_extension,
-                mime_type=mime_type,
+                origin_file_path=origin_file_path,
                 document_count=document_count,
                 node_count=node_count,
                 vector_dimension=vector_dimension,
@@ -64,14 +54,14 @@ class IndexDAO:
         except Exception as e:
             logger.error(f"Failed to get index info: {e}")
             return None
-    
+
     @staticmethod
-    def get_index_by_file_md5(db: Session, file_md5: str) -> Optional[IndexInfo]:
-        """根据文件MD5获取索引信息"""
+    def get_index_by_origin_file_path(db: Session, origin_file_path: str) -> Optional[IndexInfo]:
+        """根据原始文件路径获取索引信息"""
         try:
-            return db.query(IndexInfo).filter(IndexInfo.file_md5 == file_md5).first()
+            return db.query(IndexInfo).filter(IndexInfo.origin_file_path == origin_file_path).first()
         except Exception as e:
-            logger.error(f"Failed to get index info by file MD5: {e}")
+            logger.error(f"Failed to get index info by origin_file_path: {e}")
             return None
     
     @staticmethod

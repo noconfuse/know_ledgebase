@@ -3,6 +3,7 @@ from typing import Optional, List, Any, Dict
 from llama_index.vector_stores.postgres import PGVectorStore
 from llama_index.core import VectorStoreIndex, StorageContext
 from llama_index.core.schema import BaseNode
+from pandas.core.accessor import delegate_names
 from sqlalchemy import make_url
 from config import settings
 import logging
@@ -101,6 +102,7 @@ class PostgresVectorStoreBuilder:
                 embed_model=embed_model,
                 show_progress=True
             )
+
             
             logger.info(f"成功创建向量索引，包含 {len(nodes)} 个节点")
             return index
@@ -109,46 +111,39 @@ class PostgresVectorStoreBuilder:
             logger.error(f"创建向量索引失败: {str(e)}")
             raise
     
-    def update_index_with_nodes(self, nodes: List[BaseNode], embed_model) -> VectorStoreIndex:
+    def update_index_with_nodes(self, nodes: Optional[List[BaseNode]], embed_model, delete_doc_ids: Optional[List[str]] = None) -> VectorStoreIndex:
         """
-        更新现有向量索引或创建新索引
-        
+        通过删除旧节点和插入新节点来更新现有向量索引。
+        如果索引不存在，则会根据提供的节点创建一个新索引。
+
         Args:
-            nodes: 文档节点列表
-            embed_model: 嵌入模型
-            
+            nodes: 要插入的文档节点列表。
+            embed_model: 嵌入模型。
+            delete_doc_ids: 要删除的文档ID列表。
+
         Returns:
-            VectorStoreIndex实例
+            更新后的 VectorStoreIndex 实例。
         """
         try:
-            # 检查表是否存在
-            stats = self.get_stats()
-            table_exists = stats.get('table_exists', False)
-            
-            if table_exists:
-                logger.info(f"表 {self.table_name} 已存在，清空并更新数据")
-                # 清空现有数据
-                self._clear_table_data()
-            else:
-                logger.info(f"表 {self.table_name} 不存在，将创建新表")
-            
-            # 创建向量存储
             vector_store = self.create_vector_store()
             
-            # 创建存储上下文
-            storage_context = StorageContext.from_defaults(vector_store=vector_store)
-            
-            # 创建向量索引
-            index = VectorStoreIndex(
-                nodes=nodes,
-                storage_context=storage_context,
-                embed_model=embed_model,
-                show_progress=True
-            )
-            
-            logger.info(f"成功更新向量索引，包含 {len(nodes)} 个节点")
+            # 从向量存储加载索引。如果不存在，这将创建一个空的索引对象，可以进行后续操作。
+            index = VectorStoreIndex.from_vector_store(vector_store, embed_model=embed_model)
+
+            # 如果提供了 delete_doc_ids，则执行删除操作
+            if delete_doc_ids:
+                for doc_id in delete_doc_ids:
+                    index.delete_ref_doc(doc_id, delete_from_docstore=True)
+                logger.info(f"成功从索引中删除了 {len(delete_doc_ids)} 个文档。")
+
+            # 如果提供了 nodes，则执行插入操作
+            if nodes:
+                index.insert_nodes(nodes)
+                logger.info(f"成功向索引中插入了 {len(nodes)} 个节点。")
+
+            logger.info(f"向量索引更新成功。")
             return index
-            
+
         except Exception as e:
             logger.error(f"更新向量索引失败: {str(e)}")
             raise

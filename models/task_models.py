@@ -66,6 +66,9 @@ class ParseTask(Base):
                            nullable=True,
                            index=True)
     
+    # 任务层级深度，顶层任务为0，子任务为父任务深度+1
+    depth = Column(Integer, default=0, nullable=False)
+    
     def __repr__(self):
         return f"<ParseTask(task_id='{self.task_id}', status='{self.status}', file_name='{self.file_name}')>"
     
@@ -131,7 +134,6 @@ class VectorStoreTask(Base):
     
     # 向量数据库信息
     index_id = Column(String(255), nullable=True)  # 生成的索引ID
-    vector_store_path = Column(Text, nullable=True)  # 向量数据库存储路径
     
     # 配置信息
     config = Column(JSON, default=dict)  # 任务配置
@@ -159,6 +161,6 @@ class VectorStoreTask(Base):
             "total_documents": self.total_documents,
             "total_nodes": self.total_nodes,
             "index_id": self.index_id,
-            "vector_store_path": self.vector_store_path,
             "config": self.config
         }
+

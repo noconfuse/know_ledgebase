@@ -20,16 +20,11 @@ class IndexInfo(Base):
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     index_id = Column(String(255), unique=True, nullable=False, index=True)
     index_description = Column(Text, nullable=True)  # 索引描述
+
+    origin_file_path = Column(Text, nullable=True, index=True)  # 原始文件路径, 可能是目录或文件
+
     created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
-    
-    # 文件信息字段
-    file_md5 = Column(String(32), nullable=True, index=True)  # 文件MD5哈希
-    file_path = Column(Text, nullable=True)  # 原始文件路径
-    file_name = Column(String(255), nullable=True)  # 文件名
-    file_size = Column(BigInteger, nullable=True)  # 文件大小（字节）
-    file_extension = Column(String(50), nullable=True)  # 文件扩展名
-    mime_type = Column(String(255), nullable=True)  # MIME类型
     
     # 文档和节点统计
     document_count = Column(Integer, nullable=True)  # 文档数量

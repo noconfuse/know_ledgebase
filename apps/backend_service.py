@@ -2,7 +2,7 @@ from fastapi import FastAPI, File, UploadFile, HTTPException, BackgroundTasks, F
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
-from typing import Optional, Dict, Any, List
+from typing import Optional, Dict, Any, List, Union
 import asyncio
 import sys
 import os
@@ -14,6 +14,7 @@ from contextlib import asynccontextmanager
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 
+from auth.auth_routes import router
 from models.parse_task import TaskStatus
 from config import settings
 from common.response import success_response, error_response, ErrorCodes
@@ -82,9 +83,9 @@ class TaskStatusResponse(BaseModel):
     stage_details: Optional[Dict[str, Any]] = None
     result: Optional[Dict[str, Any]] = None
     error: Optional[str] = None
-    created_at: float
-    started_at: Optional[float] = None
-    completed_at: Optional[float] = None
+    created_at: Union[datetime, float]
+    started_at: Optional[Union[datetime, float]] = None
+    completed_at: Optional[Union[datetime, float]] = None
     file_info: Optional[Dict[str, Any]] = None
     processing_logs: Optional[List[Dict[str, Any]]] = None
     parser_type: Optional[str] = None
@@ -106,7 +107,7 @@ async def lifespan(app: FastAPI):
         Path(settings.OUTPUT_DIR).mkdir(parents=True, exist_ok=True)
         
         # 启动清理任务
-        cleanup_task = asyncio.create_task(periodic_cleanup())
+        # cleanup_task = asyncio.create_task(periodic_cleanup())
         
         logger.info("Document Service started successfully")
         yield
@@ -117,11 +118,11 @@ async def lifespan(app: FastAPI):
     finally:
         # 关闭时的清理
         logger.info("Shutting down Document Service...")
-        cleanup_task.cancel()
-        try:
-            await cleanup_task
-        except asyncio.CancelledError:
-            pass
+        # cleanup_task.cancel()
+        # try:
+        #     await cleanup_task
+        # except asyncio.CancelledError:
+        #     pass
 
 # 创建FastAPI应用
 app = FastAPI(
@@ -148,7 +149,7 @@ async def periodic_cleanup():
     """定期清理过期任务"""
     while True:
         try:
-            await asyncio.sleep(3600)  # 每小时清理一次
+            await asyncio.sleep(10800)  # 每小时清理一次
             document_parser.cleanup_expired_tasks()
             vector_store_builder.cleanup_expired_tasks()
             logger.info("Completed periodic cleanup")
@@ -340,6 +341,8 @@ async def get_parse_status(task_id: str):
     except HTTPException:
         raise
     except Exception as e:
+        import traceback
+        traceback.print_exc()
         logger.error(f"Error in get_parse_status: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
@@ -677,6 +680,29 @@ async def delete_vector_index(index_id: str):
             error_code=ErrorCodes.INTERNAL_ERROR,
             status_code=500
         )
+
+
+@app.get('/test_collect_documents/{parse_task_id}')
+async def test_collect_documents(parse_task_id: str):
+    """测试收集文档"""
+    # 2. 测试收集文档
+    try:
+        from services.vector_store_builder import VectorStoreBuilder
+        vector_builder = VectorStoreBuilder()
+        all_tasks = vector_builder.test_collection_documents(parse_task_id)
+        return success_response(
+            data={"all_tasks": all_tasks},
+            message=f"成功测试收集文档 {len(all_tasks)} 个"
+        )
+    except Exception as e:
+        logger.error(f"Error testing collection documents: {e}")
+        return error_response(
+            message=f"测试收集文档时发生错误: {str(e)}",
+            error_code=ErrorCodes.INTERNAL_ERROR,
+            status_code=500
+        )
+            
+    
 
 if __name__ == "__main__":
     import uvicorn

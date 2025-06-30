@@ -14,10 +14,11 @@ os.environ["HF_ENDPOINT"] = "https://hf-mirror.com"
 class EmbeddingModelSettings(BaseModel):
     """嵌入模型配置"""
     PROVIDER_NAME: str = "siliconflow"
-    MODEL_NAME: str = "BAAI/bge-large-zh-v1.5"
+    MODEL_NAME: str = "BAAI/bge-m3"
     API_BASE_URL: str = "https://api.siliconflow.com"
     API_KEY: str = "sk-pjzovtzymbtowvsidefrxhxwxwpgzrdpfirhxzikqpxlovbl"
     DIMENSIONS: int = 1024
+    LOCAL_PATH: str = os.path.join(os.path.dirname(__file__), "models_dir", "bge_m3")
 
 class RerankModelSettings(BaseModel):
     """重排模型配置"""
@@ -28,13 +29,14 @@ class RerankModelSettings(BaseModel):
 
 class LLMModelSettings(BaseModel):
     """LLM模型配置"""
-    PROVIDER_NAME: str = "siliconflow"
-    MODEL_NAME: str = "THUDM/GLM-4-9B-0414"
-    API_BASE_URL: str = "https://api.siliconflow.com"
-    API_KEY: str = "sk-pjzovtzymbtowvsidefrxhxwxwpgzrdpfirhxzikqpxlovbl"
+    PROVIDER_NAME: str = "zhipu"
+    MODEL_NAME: str = "glm-4-flash-250414"
+    API_BASE_URL: str = "https://open.bigmodel.cn/api/paas/v4"
+    API_KEY: str = "3a5abfe6a9f5432e9b47b9f7989d6085.BxCPgr3gfFyasZtx"
     TEMPERATURE: float = 0.5
     MAX_TOKENS: int = 2048
     MAX_RETRIES: int = 3
+    API_REQUEST_INTERVAL: float = 1
     SYSTEM_PROMPT: str = "你是一个专业的法律问答助手，你的回答必须简洁明了，不要答非所问，不要编造答案，不要回答法律问题之外的内容。"
 
 
@@ -61,7 +63,7 @@ class Settings(BaseSettings):
     
     # 文档解析配置
     MAX_FILE_SIZE: int = 100 * 1024 * 1024  # 100MB
-    SUPPORTED_FORMATS: List[str] = [".pdf", ".docx", ".doc", ".txt", ".md", ".html", ".pptx", ".xlsx"]
+    SUPPORTED_FORMATS: List[str] = [".pdf", ".docx", ".doc", ".txt", ".md", ".html", ".pptx", ".xlsx", '.xls']
     SUPPORTED_PARSER_TYPES: List[str] = ["docling", "mineru"]
     DEFAULT_PARSER_TYPE: str = "docling"  # 默认解析器类型: "docling" 或 "mineru"
     PARSE_TIMEOUT: int = 300  # 5分钟
