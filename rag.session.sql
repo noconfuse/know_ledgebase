@@ -1,0 +1,4 @@
+
+
+DROP TABLE data_vector_store_690034ec_919f_4841_8a51_fc235947a0ed;
+

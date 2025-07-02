@@ -3,6 +3,7 @@ import logging
 from typing import Dict, Any, Optional
 import threading
 
+from docling.datamodel.accelerator_options import AcceleratorDevice, AcceleratorOptions
 from docling.datamodel.document import ConversionResult
 from docling.document_converter import DocumentConverter, PdfFormatOption
 from docling.datamodel.base_models import InputFormat
@@ -57,26 +58,44 @@ class DoclingParser:
                         force_full_page_ocr=True,  # 强制全页OCR
                     )
                     logger.info(f"Tesseract OCR配置完成 - 语言: {ocr_languages}")
-                elif ocr_type == "rapidorc":
-                    # RapidOCR分支仅作保留，docling官方暂未支持
+                elif ocr_type == "rapidocr":
                     logger.info("配置RapidOCR引擎...")
+                    
+                    # 使用更高质量的检测模型
                     det_model_path = os.path.join(
-                        settings.RAPID_OCR_MODEL_PATH, "PP-OCRv4", "en_PP-OCRv3_det_infer.onnx"
+                        settings.RAPID_OCR_MODEL_PATH, "PP-OCRv4", "ch_PP-OCRv4_det_server_infer.onnx"
                     )
+                    # 使用服务器版本的识别模型以获得更好的质量
                     rec_model_path = os.path.join(
                         settings.RAPID_OCR_MODEL_PATH, "PP-OCRv4", "ch_PP-OCRv4_rec_server_infer.onnx"
                     )
                     cls_model_path = os.path.join(
                         settings.RAPID_OCR_MODEL_PATH, "PP-OCRv3", "ch_ppocr_mobile_v2.0_cls_train.onnx"
                     )
+                    
+                    # 验证模型文件是否存在
+                    for model_name, model_path in [("检测模型", det_model_path), ("识别模型", rec_model_path), ("分类模型", cls_model_path)]:
+                        if not os.path.exists(model_path):
+                            logger.warning(f"{model_name}文件不存在: {model_path}")
+                        else:
+                            logger.info(f"{model_name}路径: {model_path}")
 
                     pdf_options.ocr_options = RapidOcrOptions(
                         force_full_page_ocr=True,
                         det_model_path=det_model_path,
                         rec_model_path=rec_model_path,
-                        cls_model_path=cls_model_path
+                        cls_model_path=cls_model_path,
                     )
+                    
+                    # 添加GPU加速配置
+                    if settings.USE_GPU:
+                        pdf_options.accelerator_options = AcceleratorOptions(
+                            device=AcceleratorDevice.CUDA
+                        )
+                        logger.info("启用CUDA加速")
+                    
                     logger.info(f"RapidOCR配置完成 - 语言: {ocr_languages}, GPU: {settings.USE_GPU}")
+                    logger.info("使用高质量服务器模型以提升OCR精度")
                 else:
                     logger.info("配置EasyOCR引擎...")
                     pdf_options.ocr_options = EasyOcrOptions(
@@ -85,6 +104,9 @@ class DoclingParser:
                         use_gpu=settings.USE_GPU, 
                         download_enabled=True,  # 启用模型下载以支持OCR功能
                         model_storage_directory=settings.EASY_OCR_MODEL_PATH
+                    )
+                    pdf_options.accelerator_options = AcceleratorOptions(
+                        device=AcceleratorDevice.CUDA
                     )
                     logger.info(f"EasyOCR配置完成 - 语言: {ocr_languages}, GPU: {settings.USE_GPU}")
                     logger.info(f"EasyOCR模型路径: {settings.EASY_OCR_MODEL_PATH}")
@@ -114,5 +136,7 @@ class DoclingParser:
             return result
         except Exception as e:
             logger.error(f"解析文件 {file_path} 失败: {e}")
+            logger.error(f"错误详情: {traceback.format_exc()}")
+            return None
 
     

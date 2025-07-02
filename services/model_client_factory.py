@@ -1,5 +1,7 @@
 from typing import Dict, Any, Optional
-from config import EmbeddingModelSettings, LLMModelSettings, RerankModelSettings
+import torch
+
+from config import EmbeddingModelSettings, LLMModelSettings, RerankModelSettings, settings
 
 # Import LlamaIndex LLM integrations
 from llama_index.core.llms import LLM
@@ -146,7 +148,17 @@ class ModelClientFactory:
 
         # 优先使用本地
         if local_path:
-            return LlamaIndexHuggingFaceEmbedding(model_name=local_path, device="mps",embed_batch_size=10)
+            device = "cuda" if torch.cuda.is_available() else "cpu"
+            # 使用配置文件中的批处理大小，GPU时使用更小的批处理大小以减少内存使用
+            batch_size = settings.EMBEDDING_BATCH_SIZE if device == "cuda" else 10
+            return LlamaIndexHuggingFaceEmbedding(
+                model_name=local_path, 
+                device=device, 
+                embed_batch_size=batch_size,
+                # 添加内存优化配置
+                trust_remote_code=True,
+                cache_folder=None  # 避免缓存占用额外内存
+            )
 
         if provider_name == "openai":
             return LlamaIndexOpenAIEmbedding(
@@ -173,7 +185,7 @@ class ModelClientFactory:
 
     @staticmethod
     def create_rerank_client(
-        model_config: RerankModelSettings,
+        model_config: RerankModelSettings, top_n: int = 4
     ) -> Optional[BaseNodePostprocessor]:
         """创建重排序模型客户端 (使用LlamaIndex抽象)
 
@@ -189,6 +201,7 @@ class ModelClientFactory:
             return SiliconFlowRerank(
                 model=model_config.MODEL_NAME,
                 api_key=model_config.API_KEY,
+                top_n=top_n,
             )
 
         else:

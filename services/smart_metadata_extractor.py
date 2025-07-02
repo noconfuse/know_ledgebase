@@ -142,18 +142,29 @@ class SmartMetadataExtractor(BaseExtractor):
     """智能元数据提取器"""
     
     llm: LLM = Field(description="语言模型实例")
+    min_chunk_size_for_extraction: int = Field(default=100, description="进行元数据提取的最小chunk大小，低于此长度的chunk将跳过提取")
     min_chunk_size_for_summary: int = Field(default=512, description="生成摘要的最小chunk大小")
     min_chunk_size_for_qa: int = Field(default=1024, description="生成问答对的最小chunk大小")
     max_keywords: int = Field(default=5, description="要提取的最大关键词数")
-    document_metadata_cache: Dict[str, Any] = Field(default_factory=dict, description="文档级元数据缓存（内存）")
+    # 移除内存缓存，改为使用基于文件名的本地缓存
     persistent_cache_manager: Optional[MetadataCacheManager] = Field(default=None, description="持久化缓存管理器")
 
-    def __init__(self, llm: Any, min_chunk_size_for_summary: int = 512, min_chunk_size_for_qa: int = 1024, max_keywords: int = 5, enable_persistent_cache: bool = True, cache_dir: str = "cache/metadata", **kwargs):
+    def __init__(self, llm: Any, min_chunk_size_for_extraction: int = None, min_chunk_size_for_summary: int = None, min_chunk_size_for_qa: int = None, max_keywords: int = None, enable_persistent_cache: bool = True, cache_dir: str = "cache/metadata", **kwargs):
+        # 使用配置文件中的默认值
+        if min_chunk_size_for_extraction is None:
+            min_chunk_size_for_extraction = settings.MIN_CHUNK_SIZE_FOR_EXTRACTION
+        if min_chunk_size_for_summary is None:
+            min_chunk_size_for_summary = settings.MIN_CHUNK_SIZE_FOR_SUMMARY
+        if min_chunk_size_for_qa is None:
+            min_chunk_size_for_qa = settings.MIN_CHUNK_SIZE_FOR_QA
+        if max_keywords is None:
+            max_keywords = settings.MAX_KEYWORDS
         # 初始化持久化缓存管理器
         persistent_cache_manager = MetadataCacheManager(cache_dir) if enable_persistent_cache else None
         
         super().__init__(
             llm=llm, 
+            min_chunk_size_for_extraction=min_chunk_size_for_extraction,
             min_chunk_size_for_summary=min_chunk_size_for_summary, 
             min_chunk_size_for_qa=min_chunk_size_for_qa, 
             max_keywords=max_keywords, 
@@ -213,24 +224,57 @@ class SmartMetadataExtractor(BaseExtractor):
 请根据给定的结构化格式返回结果。
 """
     
+    def _create_fallback_metadata(self, title: str, doc_id: str) -> Dict[str, Any]:
+        """创建回退元数据"""
+        # 尝试从持久化缓存获取文档级元数据
+        doc_metadata = {}
+        if self.persistent_cache_manager:
+            cached_data = self.persistent_cache_manager.get_cached_metadata(doc_id=doc_id)
+            if cached_data:
+                doc_metadata = cached_data.get("metadata", {})
+        
+        fallback_metadata = {
+            "title": title,
+            "summary": "",
+            "keywords": [],
+            "qa_pairs": [],
+            "is_fallback": True
+        }
+        
+        # 使用智能合并逻辑
+        return self._merge_document_and_chunk_metadata(doc_metadata, fallback_metadata)
+    
+    def _merge_document_and_chunk_metadata(self, doc_metadata: Dict[str, Any], chunk_metadata: Dict[str, Any]) -> Dict[str, Any]:
+        """分层级存储文档级和chunk级元数据
+        
+        Args:
+            doc_metadata: 文档级元数据
+            chunk_metadata: chunk级元数据
+            
+        Returns:
+            分层级存储的元数据字典
+        """
+        # 分层级存储：chunk级元数据为主体，文档级元数据单独存储
+        layered_metadata = {
+            # chunk级元数据作为主体
+            **chunk_metadata,
+            
+            # 文档级元数据单独存储在document_metadata字段中
+            'document_metadata': doc_metadata,
+        }
+        
+        return layered_metadata
 
     
     async def _classify_and_extract(self, document_text: str, doc_id: str) -> Dict[str, Any]:
         """分类并提取文档级元数据"""
-        # 1. 首先检查内存缓存
-        if doc_id in self.document_metadata_cache:
-            logger.debug(f"Memory cache hit for doc_id: {doc_id}")
-            return self.document_metadata_cache[doc_id]
-        
-        # 2. 检查持久化缓存
+        # 检查持久化缓存
         if self.persistent_cache_manager:
+            logger.debug(f"Checking persistent cache for doc_id: {doc_id}")
             cached_metadata = self.persistent_cache_manager.get_cached_metadata(
-                doc_id=doc_id, 
-                content=document_text
+                doc_id=doc_id, content=document_text
             )
             if cached_metadata:
-                # 将持久化缓存加载到内存缓存
-                self.document_metadata_cache[doc_id] = cached_metadata
                 logger.info(f"Persistent cache hit for doc_id: {doc_id}")
                 return cached_metadata
 
@@ -239,8 +283,6 @@ class SmartMetadataExtractor(BaseExtractor):
             classification_prompt = CLASSIFICATION_PROMPT_TEMPLATE.format(
                 context_str=document_text[:4000]  # 使用片段进行分类
             )
-            # 添加API请求间隔控制，避免频率限制
-            await asyncio.sleep(settings.llm_model_settings.API_REQUEST_INTERVAL)
             
             response = await self.llm.acomplete(classification_prompt)
             category = response.text.strip().lower()
@@ -284,15 +326,11 @@ class SmartMetadataExtractor(BaseExtractor):
                 "chunk_template": chunk_template,
             }
             
-            # 保存到内存缓存
-            self.document_metadata_cache[doc_id] = cache_data
-            
             # 保存到持久化缓存
             if self.persistent_cache_manager:
+                logger.info(f"Saving metadata to persistent cache for doc_id: {doc_id}")
                 self.persistent_cache_manager.save_metadata_to_cache(
-                    doc_id=doc_id,
-                    metadata=cache_data,
-                    content=document_text
+                    doc_id=doc_id, metadata=cache_data, content=document_text
                 )
             
             logger.info(f"Document-level metadata extracted and cached (memory + persistent) for {doc_id}")
@@ -331,8 +369,6 @@ class SmartMetadataExtractor(BaseExtractor):
                 "chunk_template": chunk_template,
             }
             
-            # 即使失败也缓存结果，避免重复尝试
-            self.document_metadata_cache[doc_id] = cache_data
             logger.warning(f"Using fallback metadata for {doc_id} due to extraction failure")
             
             return cache_data
@@ -347,10 +383,6 @@ class SmartMetadataExtractor(BaseExtractor):
         """
         if doc_id:
             # 清除指定文档的缓存
-            if doc_id in self.document_metadata_cache:
-                del self.document_metadata_cache[doc_id]
-                logger.info(f"Memory cache cleared for doc_id: {doc_id}")
-            
             if self.persistent_cache_manager:
                 self.persistent_cache_manager.clear_cache(doc_id)
             
@@ -359,9 +391,6 @@ class SmartMetadataExtractor(BaseExtractor):
                 self._clear_failed_document_logs(doc_id)
         else:
             # 清除所有缓存
-            self.document_metadata_cache.clear()
-            logger.info("All memory cache cleared")
-            
             if self.persistent_cache_manager:
                 self.persistent_cache_manager.clear_cache()
                 if include_chunks:
@@ -381,12 +410,7 @@ class SmartMetadataExtractor(BaseExtractor):
         Returns:
             缓存统计信息
         """
-        stats = {
-            'memory_cache': {
-                'total_items': len(self.document_metadata_cache),
-                'doc_ids': list(self.document_metadata_cache.keys())
-            }
-        }
+        stats = {}
         
         if self.persistent_cache_manager:
             stats['persistent_cache'] = self.persistent_cache_manager.get_cache_stats()
@@ -1163,217 +1187,183 @@ class SmartMetadataExtractor(BaseExtractor):
         logger.info(f"🚀 [METADATA EXTRACTOR] Starting smart metadata extraction for {len(nodes)} nodes")
         
         metadata_list = [None] * len(nodes)  # 预分配列表，保持顺序
-        nodes_by_doc = {}
-        node_indices = {}  # 记录每个节点在原始列表中的索引
         
-        for idx, node in enumerate(nodes):
-            doc_id = node.metadata.get("original_file_path", "unknown")
-            if doc_id not in nodes_by_doc:
-                nodes_by_doc[doc_id] = []
-                node_indices[doc_id] = []
-            nodes_by_doc[doc_id].append(node)
-            node_indices[doc_id].append(idx)
-        
-        total_chunks = len(nodes)
-        processed_chunks = 0
-        # 并发处理每个文档
+        # 控制并发数量
         import asyncio
-        progress_lock = asyncio.Lock()  # 添加锁保护计数器
+        semaphore = asyncio.Semaphore(8)  # 限制并发数量
+        processed_count = 0
+        progress_lock = asyncio.Lock()
         
-        semaphore = asyncio.Semaphore(1)  # 限制并发文档数量，避免API频率限制
-        
-        async def process_document(doc_id, doc_nodes, doc_indices):
-            nonlocal processed_chunks, progress_lock
+        async def process_node(idx, node):
+            nonlocal processed_count
             
             async with semaphore:
-                logger.info(f"📄 [METADATA EXTRACTOR] Processing document {doc_id} with {len(doc_nodes)} chunks")
-                
-                full_doc_text = "\n\n".join([node.get_content() for node in doc_nodes])
-                cached_data = await self._classify_and_extract(full_doc_text, doc_id)
-                doc_metadata = cached_data["metadata"]
-                chunk_template = cached_data["chunk_template"]
-                
-                # 并发处理文档内的chunks
-                chunk_semaphore = asyncio.Semaphore(6)  # 限制并发chunk数量
-                
-                async def process_chunk(i, node, original_idx):
-                    nonlocal processed_chunks
+                try:
+                    doc_id = node.metadata.get("original_file_path", "unknown")
+                    node_type = node.metadata.get("node_type", "chunk")
+                    text_content = node.get_content()
+                    text_length = len(text_content)
                     
-                    async with chunk_semaphore:
-                        try:
-                            text_content = node.get_content()
-                            text_length = len(text_content)
-                            
-                            # 检查文本是否为空或只包含空白字符
-                            if not text_content or not text_content.strip():
-                                logger.debug(f"Skipping chunk {i+1} in document {doc_id}: empty or whitespace-only content")
-                                fallback_metadata = {
-                                    "title": f"Empty Chunk {i+1}", 
-                                    "keywords": [], 
-                                    "summary": "",
-                                    "qa_pairs": [],
-                                    **doc_metadata
-                                }
-                                metadata_list[original_idx] = fallback_metadata
-                                # 空chunk直接返回，计数将在finally块中处理
-                                return
-                            
-                            extract_summary = self._should_extract_summary(text_length)
-                            extract_qa = self._should_extract_qa(text_length)
-                            
-                            # 构建chunk提取配置，用于缓存key生成
-                            extract_config = {
-                                'extract_summary': extract_summary,
-                                'extract_qa': extract_qa,
-                                'max_keywords': self.max_keywords,
-                                'min_chunk_size_for_summary': self.min_chunk_size_for_summary,
-                                'min_chunk_size_for_qa': self.min_chunk_size_for_qa
-                            }
-                            
-                            # 尝试从chunk缓存获取元数据
-                            chunk_metadata = None
-                            if self.persistent_cache_manager:
-                                chunk_metadata = self.persistent_cache_manager.get_chunk_metadata_from_cache(
-                                    text_content, extract_config
-                                )
-                            
-                            if chunk_metadata:
-                                # 从缓存加载成功，也删除可能存在的失败记录
-                                self._remove_failed_chunk_record(doc_id, i+1, text_content)
-                                logger.info(f"💾 [METADATA EXTRACTOR] Chunk {i+1}/{len(doc_nodes)} in {doc_id} - loaded from cache")
-                            else:
-                                # 缓存未命中，执行LLM提取
-                                logger.info(f"🤖 [METADATA EXTRACTOR] Chunk {i+1}/{len(doc_nodes)} in {doc_id} - calling LLM for extraction (cache miss)")
-                                chunk_program = self._create_chunk_program(extract_summary, extract_qa, chunk_template)
-                                
-                                @retry(stop=stop_after_attempt(3), wait=wait_fixed(2))
-                                async def _run_chunk_program():
-                                    try:
-                                        # 添加API请求间隔控制，避免频率限制
-                                        await asyncio.sleep(settings.llm_model_settings.API_REQUEST_INTERVAL)
-                                        
-                                        # 获取LLM的原始输出
-                                        prompt = chunk_program.prompt.format(
-                                            context_str=text_content,
-                                            text_length=text_length,
-                                            max_keywords=self.max_keywords
-                                        )
-                                        
-                                        # 直接调用LLM获取原始输出
-                                        raw_response = await self.llm.acomplete(prompt)
-                                        raw_output = raw_response.text
-                                        
-                                        # 使用我们的CustomChunkOutputParser处理原始输出
-                                        custom_parser = self.CustomChunkOutputParser(
-                                            output_cls=chunk_program.output_cls,
-                                            verbose=True
-                                        )
-                                        result = custom_parser.parse(raw_output)
-                                        
-                                        # 检查结果是否有效
-                                        if not result or not hasattr(result, 'dict'):
-                                            raise ValueError("LLM returned empty or invalid response")
-                                        return result
-                                    except Exception as e:
-                                        # 检查是否是API响应格式错误
-                                        if "choices" in str(e) or "KeyError" in str(e):
-                                            logger.warning(f"LLM API response format error in chunk extraction: {e}")
-                                            raise ValueError(f"API response format error: {e}")
-                                        # 直接抛出所有其他错误，包括ValidationError
-                                        raise
-                                
-                                try:
-                                    result = await _run_chunk_program()
-                                    chunk_metadata = result.dict()
-                                    
-                                    # 保存到chunk缓存
-                                    if self.persistent_cache_manager:
-                                        self.persistent_cache_manager.save_chunk_metadata_to_cache(
-                                            text_content, extract_config, chunk_metadata
-                                        )
-                                    
-                                    # 成功提取元数据后，删除可能存在的失败记录
-                                    self._remove_failed_chunk_record(doc_id, i+1, text_content)
-                                    
-                                    logger.info(f"✅ [METADATA EXTRACTOR] Chunk {i+1}/{len(doc_nodes)} in {doc_id} - LLM extraction successful")
-                                    
-                                except Exception as e:
-                                    import traceback
-                                    traceback_info = traceback.format_exc()
-                                    
-                                    logger.info(f"❌ [METADATA EXTRACTOR] Chunk {i+1}/{len(doc_nodes)} in {doc_id} - LLM extraction FAILED: {e}")
-                                   
-                                    logger.error(f"Error details: {traceback_info}")
-                                    
-                                    # 记录失败的chunk到本地日志
-                                    self._log_failed_chunk(
-                                        doc_id=doc_id,
-                                        chunk_index=i+1,
-                                        text_content=text_content,
-                                        text_length=text_length,
-                                        extract_config=extract_config,
-                                        error=e,
-                                        traceback_info=traceback_info
-                                    )
-                                    
-                                    # 返回一个默认的结果对象，但不缓存失败结果
-                                    chunk_metadata = {
-                                        "title": f"Chunk {i+1} (提取失败)",
-                                        "summary": "元数据提取失败 - API响应异常",
-                                        "keywords": []
-                                    }
-                                    
-                                    logger.warning(f"Using fallback metadata for chunk {i+1} in {doc_id} due to extraction failure")
-                            
-                            final_metadata = {**doc_metadata, **chunk_metadata}
-                            metadata_list[original_idx] = final_metadata
-                            
-                        except Exception as e:
-                            import traceback
-                            
-                            logger.error(f"Error extracting metadata for chunk {i+1} in document {doc_id}: {e}")
-                            logger.error(f"Error trace: {traceback.format_exc()}")
-                            
-                            # 记录失败的chunk到本地日志目录
-                            self._log_failed_chunk(
-                                doc_id=doc_id,
-                                chunk_index=i+1,
-                                text_content=text_content,
-                                text_length=text_length,
-                                extract_config=extract_config,
-                                error=e,  # 传递原始异常对象而不是字符串
-                                traceback_info=traceback.format_exc()
-                            )
-                            
-                            fallback_metadata = {"title": f"Chunk {i+1}", "keywords": [], **doc_metadata}
-                            metadata_list[original_idx] = fallback_metadata
+                    # 处理原始文档节点 - 提取文档级元数据
+                    if node_type == "original_document":
+                        logger.info(f"📋 [METADATA EXTRACTOR] Processing original document: {doc_id} (length: {text_length})")
                         
-                        finally:
-                            async with progress_lock:
-                                processed_chunks += 1
-                                progress_percent = (processed_chunks / total_chunks) * 100
-                                logger.info(f"📊 [METADATA EXTRACTOR] Progress: {processed_chunks}/{total_chunks} chunks ({progress_percent:.1f}%) - Completed chunk {i+1}/{len(doc_nodes)} in {doc_id}")
+                        # 提取文档级元数据并缓存
+                        cached_data = await self._classify_and_extract(text_content, doc_id)
+                        doc_metadata = cached_data["metadata"]
+                        
+                        # 为原始文档节点设置特殊的元数据
+                        original_doc_metadata = {
+                            **doc_metadata
+                        }
+                        metadata_list[idx] = original_doc_metadata
+                        
+                    # 处理切分节点 - 提取chunk级元数据
+                    else:
+                        logger.debug(f"📄 [METADATA EXTRACTOR] Processing chunk {idx+1}: {doc_id} (length: {text_length})")
+                        
+                        # 检查文本是否为空或过短
+                        if not text_content or not text_content.strip():
+                            logger.debug(f"Skipping chunk {idx+1}: empty content")
+                            metadata_list[idx] = self._create_fallback_metadata("", doc_id)
+                            return
+                        
+                        if text_length < self.min_chunk_size_for_extraction:
+                            logger.debug(f"Skipping chunk {idx+1}: too short ({text_length} < {self.min_chunk_size_for_extraction})")
+                            metadata_list[idx] = self._create_fallback_metadata("", doc_id)
+                            return
+                        
+                        # 获取文档级元数据
+                        doc_metadata = {}
+                        chunk_template = self._create_default_chunk_template()
+                        
+                        # 尝试从持久化缓存获取文档级元数据
+                        if self.persistent_cache_manager:
+                            cached_data = self.persistent_cache_manager.get_cached_metadata(doc_id=doc_id)
+                            if cached_data:
+                                doc_metadata = cached_data.get("metadata", {})
+                                chunk_template = cached_data.get("chunk_template", self._create_default_chunk_template())
+                            else:
+                                # 如果没有原始文档节点，需要提取文档级元数据
+                                logger.warning(f"⚠️ [METADATA EXTRACTOR] No original document found for {doc_id}, extracting from chunk")
+                                cached_data = await self._classify_and_extract(text_content, doc_id)
+                                doc_metadata = cached_data["metadata"]
+                                chunk_template = cached_data["chunk_template"]
+                        
+                        # 检查持久化缓存
+                        extract_summary = self._should_extract_summary(text_length)
+                        extract_qa = self._should_extract_qa(text_length)
+                        
+                        extract_config = {
+                            'extract_summary': extract_summary,
+                            'extract_qa': extract_qa,
+                            'max_keywords': self.max_keywords,
+                            'min_chunk_size_for_summary': self.min_chunk_size_for_summary,
+                            'min_chunk_size_for_qa': self.min_chunk_size_for_qa
+                        }
+                        
+                        chunk_metadata = None
+                        if self.persistent_cache_manager:
+                            chunk_metadata = self.persistent_cache_manager.get_chunk_metadata_from_cache(
+                                doc_id=doc_id, chunk_text=text_content, chunk_index=idx+1
+                            )
+                        
+                        if chunk_metadata:
+                            # 从缓存加载成功
+                            self._remove_failed_chunk_record(doc_id, idx+1, text_content)
+                            logger.debug(f"💾 [METADATA EXTRACTOR] Chunk {idx+1} loaded from cache")
+                        else:
+                            # 缓存未命中，执行LLM提取
+                            logger.debug(f"🤖 [METADATA EXTRACTOR] Chunk {idx+1} calling LLM for extraction")
+                            chunk_program = self._create_chunk_program(extract_summary, extract_qa, chunk_template)
+                            
+                            try:
+                                # 添加API请求间隔控制
+                                await asyncio.sleep(settings.llm_model_settings.API_REQUEST_INTERVAL)
+                                
+                                prompt = chunk_program.prompt.format(
+                                    context_str=text_content,
+                                    text_length=text_length,
+                                    max_keywords=self.max_keywords
+                                )
+                                
+                                raw_response = await self.llm.acomplete(prompt)
+                                raw_output = raw_response.text
+                                
+                                custom_parser = self.CustomChunkOutputParser(
+                                    output_cls=chunk_program.output_cls,
+                                    verbose=True
+                                )
+                                result = custom_parser.parse(raw_output)
+                                
+                                if not result or not hasattr(result, 'dict'):
+                                    raise ValueError("LLM returned empty or invalid response")
+                                
+                                chunk_metadata = result.dict()
+                                
+                                # 保存到chunk缓存
+                                if self.persistent_cache_manager:
+                                    self.persistent_cache_manager.save_chunk_metadata_to_cache(
+                                        doc_id=doc_id, chunk_text=text_content, metadata=chunk_metadata, chunk_index=idx+1
+                                    )
+                                
+                                self._remove_failed_chunk_record(doc_id, idx+1, text_content)
+                                logger.debug(f"✅ [METADATA EXTRACTOR] Chunk {idx+1} LLM extraction successful")
+                                
+                            except Exception as e:
+                                import traceback
+                                logger.error(f"❌ [METADATA EXTRACTOR] Chunk {idx+1} LLM extraction FAILED: {e}")
+                                
+                                self._log_failed_chunk(
+                                    doc_id=doc_id,
+                                    chunk_index=idx+1,
+                                    text_content=text_content,
+                                    text_length=text_length,
+                                    extract_config=extract_config,
+                                    error=e,
+                                    traceback_info=traceback.format_exc()
+                                )
+                                
+                                chunk_metadata = {
+                                    "title": "",
+                                    "summary": "",
+                                    "keywords": [],
+                                    "qa_pairs": [] if extract_qa else [],
+                                    "extraction_failed": True,
+                                    "error_message": str(e)
+                                }
+                        
+                        # 使用智能合并逻辑合并文档级和chunk级元数据
+                        final_metadata = self._merge_document_and_chunk_metadata(doc_metadata, chunk_metadata)
+                        metadata_list[idx] = final_metadata
+                    
+                    # 更新进度
+                    async with progress_lock:
+                        nonlocal processed_count
+                        processed_count += 1
+                        if processed_count % 10 == 0 or processed_count == len(nodes):
+                            logger.info(f"📊 [METADATA EXTRACTOR] Progress: {processed_count}/{len(nodes)} nodes processed")
                 
-                # 并发处理当前文档的所有chunks
-                chunk_tasks = [
-                    process_chunk(i, node, doc_indices[i]) 
-                    for i, node in enumerate(doc_nodes)
-                ]
-                await asyncio.gather(*chunk_tasks)
-                
-                logger.info(f"🎉 [METADATA EXTRACTOR] Completed processing document {doc_id} with {len(doc_nodes)} chunks")
-                logger.info(f"Completed processing document {doc_id} with {len(doc_nodes)} chunks")
+                except Exception as e:
+                    logger.error(f"Unexpected error processing node {idx+1}: {e}")
+                    metadata_list[idx] = {
+                        "title": f"Node {idx+1} (处理异常)",
+                        "keywords": [],
+                        "summary": "",
+                        "qa_pairs": [],
+                        "processing_failed": True,
+                        "error_message": str(e)
+                    }
+                    
+                    async with progress_lock:
+                        processed_count += 1
         
-        # 并发处理所有文档
-        doc_tasks = [
-            process_document(doc_id, doc_nodes, node_indices[doc_id])
-            for doc_id, doc_nodes in nodes_by_doc.items()
-        ]
-        
-        await asyncio.gather(*doc_tasks)
+        # 并发处理所有节点
+        tasks = [process_node(idx, node) for idx, node in enumerate(nodes)]
+        await asyncio.gather(*tasks)
         
         logger.info(f"🏁 [METADATA EXTRACTOR] Smart metadata extraction completed for {len(nodes)} nodes")
-        return metadata_list  # 直接返回元数据列表
+        return metadata_list
     
 
     

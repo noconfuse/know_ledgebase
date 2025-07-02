@@ -1,14 +1,13 @@
 llama-index
 llama-index-llms-openai-like
 llama-index-embeddings-huggingface
-llama-index-postprocessor-flag-embedding-reranker
 llama-index-vector-stores-postgres
-llama-index-vector-stores-chroma
 llama-index-retrievers-bm25
 fastapi==0.115.4
 uvicorn[standard]==0.32.0
 pydantic==2.9.2
 pydantic-settings==2.6.1
+email-validator==2.2.0
 psycopg2-binary==2.9.9
 numpy==1.26.4
 scipy==1.13.1
@@ -17,7 +16,6 @@ torch==2.2.2
 torchvision==0.17.2
 transformers==4.44.2
 sentence-transformers==3.2.1
-FlagEmbedding==1.2.11
 easyocr==1.7.1
 docling==2.38.0
 docling-core==2.38.1
@@ -25,6 +23,7 @@ docling-ibm-models==3.6.0
 docling-parse==4.0.5
 python-multipart==0.0.12
 aiofiles==24.1.0
+python-dotenv==1.1.1
 Pillow==10.4.0
 openpyxl==3.1.5
 python-docx==1.1.2
@@ -40,8 +39,8 @@ sqlalchemy==2.0.23
 alembic==1.13.1
 passlib[bcrypt]==1.7.4
 python-jose[cryptography]==3.3.0
-
 PyJWT==2.8.0
+onnxruntime-gpu==1.18.0
 bcrypt==4.0.1
 
 llama-index-postprocessor-siliconflow-rerank
@@ -51,3 +50,7 @@ llama-index-llms-siliconflow
 llama-index-llms-deepseek
 llama-index-llms-zhipuai
 llama-index-llms-anthropic
+llama-index-node-parser-docling==0.3.2
+llama-index-vector-stores-faiss==0.4.0
+llama-index-llms-huggingface==0.5.0
+llama-index-llms-openrouter==0.3.2

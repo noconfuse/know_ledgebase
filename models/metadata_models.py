@@ -6,7 +6,6 @@
 from typing import List, Optional
 from pydantic import BaseModel, Field
 
-
 class DocumentLevelMetadata(BaseModel):
     """文档级元数据模型 - 每个文档只提取一次"""
     
@@ -16,19 +15,14 @@ class DocumentLevelMetadata(BaseModel):
         description="文档类型分类，如：法律条文、司法解释、行政法规、合同条款、案例分析、理论文章、操作指南等"
     )
     
-    difficulty_level: str = Field(
-        ...,
-        description="内容难度等级：初级（基础概念）、中级（实务应用）、高级（复杂理论）"
-    )
-    
-    legal_domain: List[str] = Field(
-        ...,
-        description="法律领域分类，如：民法、刑法、行政法、商法、劳动法、知识产权法等，最多3个"
+    legal_domain: Optional[List[str]] = Field(
+        None,
+        description="法律领域分类，如：民法、刑法、行政法、商法、劳动法、知识产权法等，最多3个。仅法律相关文档需要填写"
     )
     
     target_audience: List[str] = Field(
         ...,
-        description="目标受众，如：律师、法官、企业法务、普通公民、学生等"
+        description="文档目标受众，如：律师、法官、企业法务、普通公民、学生等"
     )
     
     importance_level: str = Field(
@@ -45,6 +39,11 @@ class DocumentLevelMetadata(BaseModel):
         default_factory=list,
         description="相关法条或条款，提取文中提到的其他法律条文、司法解释等"
     )
+    
+    document_summary: str = Field(
+        ...,
+        description="文档摘要，简要概括文档的主要内容、目的和关键要点"
+    )
 
 
 class ChunkLevelMetadata(BaseModel):
@@ -52,7 +51,7 @@ class ChunkLevelMetadata(BaseModel):
     
     title: str = Field(
         ..., 
-        description="chunk标题，应该简洁准确地概括chunk内容。对于法律条文，格式如：第X条 关于XXX的规定"
+        description="chunk标题，应该简洁准确地概括chunk内容。对于法律条文，格式如：关于XXX的规定"
     )
     
     keywords: List[str] = Field(

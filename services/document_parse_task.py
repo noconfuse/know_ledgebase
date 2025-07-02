@@ -150,7 +150,7 @@ class DocumentParseTask:
             document_title = getattr(document, 'title', Path(self.task.file_path).stem)
             logger.debug(f"文档标题: {document_title}")
 
-            output_dir = os.path.join(settings.OUTPUT_DIR, self.task.task_id)
+            output_dir = os.path.join(settings.KNOWLEDGE_BASE_DIR, "outputs", self.task.task_id)
             os.makedirs(output_dir, exist_ok=True)
             file_name = self.task.file_name
             processor = DocumentDoclingProcessor()

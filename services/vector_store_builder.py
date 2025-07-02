@@ -12,6 +12,8 @@ from datetime import datetime
 
 from llama_index.core import Document, VectorStoreIndex, StorageContext
 from llama_index.core.node_parser import SentenceSplitter, HTMLNodeParser
+from llama_index.core.schema import BaseNode, TextNode
+from llama_index.core.node_parser.interface import NodeParser
 from common.custom_markdown_node_parser import (
     CustomMarkdownNodeParser as MarkdownNodeParser,
 )
@@ -40,6 +42,64 @@ from services.model_client_factory import ModelClientFactory
 logger = logging.getLogger(__name__)
 
 
+class DocumentPreservingTransformer(NodeParser):
+    """自定义转换器，保留原始文档节点的同时创建切分节点"""
+    
+    def __init__(self, node_parser, **kwargs):
+        super().__init__(**kwargs)
+        self._node_parser = node_parser
+    
+    def _parse_nodes(self, nodes, show_progress=False, **kwargs):
+        """解析节点，同时保留原始文档和创建切分节点"""
+        result_nodes = []
+        
+        for node in nodes:
+            if isinstance(node, Document):
+                # 1. 创建原始文档节点
+                original_node = TextNode(
+                    text=node.text,
+                    metadata={
+                        **node.metadata,
+                        "node_type": "original_document",
+                        "is_complete_document": True
+                    }
+                )
+                result_nodes.append(original_node)
+                
+                # 2. 创建切分节点
+                if isinstance(self._node_parser, list):
+                    # 如果是多个解析器，依次应用
+                    current_nodes = [node]
+                    for parser in self._node_parser:
+                        if hasattr(parser, '_parse_nodes'):
+                            current_nodes = parser._parse_nodes(current_nodes, show_progress=show_progress, **kwargs)
+                        elif hasattr(parser, 'get_nodes_from_documents'):
+                            # 对于某些解析器，使用get_nodes_from_documents方法
+                            current_nodes = parser.get_nodes_from_documents(current_nodes, show_progress=show_progress)
+                else:
+                    # 单个解析器
+                    if hasattr(self._node_parser, '_parse_nodes'):
+                        current_nodes = self._node_parser._parse_nodes([node], show_progress=show_progress, **kwargs)
+                    elif hasattr(self._node_parser, 'get_nodes_from_documents'):
+                        current_nodes = self._node_parser.get_nodes_from_documents([node], show_progress=show_progress)
+                
+                # 为切分节点添加标记并继承原始文档的metadata
+                for chunk_node in current_nodes:
+                    if hasattr(chunk_node, 'metadata'):
+                        # 继承原始文档的所有metadata
+                        chunk_node.metadata.update(node.metadata)
+                        # 添加切分节点特有的标记
+                        chunk_node.metadata["node_type"] = "chunk"
+                        chunk_node.metadata["is_complete_document"] = False
+                
+                result_nodes.extend(current_nodes)
+            else:
+                # 如果输入已经是节点，直接处理
+                result_nodes.append(node)
+        
+        return result_nodes
+
+
 class VectorStoreBuilder:
     """向量数据库构建器"""
 
@@ -55,13 +115,56 @@ class VectorStoreBuilder:
         if not self._initialized:
             self._setup_models()
             self.tasks: Dict[str, VectorStoreTask] = {}
-            self.executor = ThreadPoolExecutor(max_workers=2)  # 限制并发数
+            # self.executor = ThreadPoolExecutor(max_workers=2)  # 限制并发数 - 似乎未使用，暂时注释掉以解决进程挂起问题
 
             # 初始化任务DAO
             self.task_dao = TaskDAO()
 
             self._initialized = True
             logger.info("VectorStoreBuilder initialized")
+    
+    def _clear_gpu_memory_if_needed(self):
+        """在需要时清理GPU内存"""
+        try:
+            import torch
+            import gc
+            
+            if torch.cuda.is_available() and settings.USE_GPU:
+                # 获取当前GPU内存使用情况
+                device = torch.device(settings.GPU_DEVICE)
+                total_memory = torch.cuda.get_device_properties(device).total_memory
+                allocated_memory = torch.cuda.memory_allocated(device)
+                cached_memory = torch.cuda.memory_reserved(device)
+                
+                # 计算内存使用率
+                memory_usage_ratio = cached_memory / total_memory
+                
+                logger.info(f"GPU内存使用情况: {cached_memory / 1024**3:.2f}GB / {total_memory / 1024**3:.2f}GB ({memory_usage_ratio*100:.1f}%)")
+                
+                # 如果内存使用率超过70%，进行清理
+                if memory_usage_ratio > 0.7:
+                    logger.warning(f"GPU内存使用率过高 ({memory_usage_ratio*100:.1f}%)，开始清理...")
+                    
+                    # 清理PyTorch缓存
+                    torch.cuda.empty_cache()
+                    
+                    # 强制垃圾回收
+                    gc.collect()
+                    
+                    # 再次检查内存
+                    new_cached_memory = torch.cuda.memory_reserved(device)
+                    new_usage_ratio = new_cached_memory / total_memory
+                    
+                    logger.info(f"清理后GPU内存使用: {new_cached_memory / 1024**3:.2f}GB / {total_memory / 1024**3:.2f}GB ({new_usage_ratio*100:.1f}%)")
+                    
+                    if new_usage_ratio < memory_usage_ratio:
+                        logger.info(f"✅ GPU内存清理成功，释放了 {(cached_memory - new_cached_memory) / 1024**3:.2f}GB")
+                    else:
+                        logger.warning("⚠️  GPU内存清理效果有限，建议降低批处理大小或重启应用")
+                else:
+                    logger.info("✅ GPU内存使用正常，无需清理")
+        except Exception as e:
+            logger.warning(f"GPU内存检查失败: {e}")
 
     def _setup_models(self):
         """设置模型"""
@@ -163,6 +266,9 @@ class VectorStoreBuilder:
             extractors = [
                 SmartMetadataExtractor(
                     llm=self.llm,
+                    min_chunk_size_for_extraction=task.config.get(
+                        "min_chunk_size_for_extraction", 100
+                    ),
                     min_chunk_size_for_summary=task.config.get(
                         "min_chunk_size_for_summary", 512
                     ),
@@ -343,6 +449,10 @@ class VectorStoreBuilder:
             # 6. 创建向量存储
             task.progress = 80
             logger.info(f"Starting vector store creation with {len(nodes)} nodes")
+            
+            # 在创建向量存储前清理GPU内存
+            self._clear_gpu_memory_if_needed()
+            
             start_time = time.time()
 
             try:
@@ -481,8 +591,10 @@ class VectorStoreBuilder:
 
         def collect_tasks(task: ParseTask):
             """递归收集任务的内部函数"""
-            # 如果任务有output_directory字段值，则收集该任务
-            if task.output_directory:
+            # 基于KNOWLEDGE_BASE_DIR和task_id检查输出目录是否存在
+            from config import settings
+            expected_output_dir = os.path.join(settings.KNOWLEDGE_BASE_DIR, "outputs", task.task_id)
+            if os.path.exists(expected_output_dir):
                 all_tasks.append(task)
             
             # 如果任务有子任务，递归处理子任务
@@ -495,8 +607,8 @@ class VectorStoreBuilder:
                     else:
                         # 如果无法加载子任务，则使用当前任务
                         collect_tasks(subtask)
-            elif not task.output_directory:
-                # 如果没有子任务且没有output_directory，说明是叶子节点但没有输出，也添加到处理列表
+            elif not os.path.exists(expected_output_dir):
+                # 如果没有子任务且没有输出目录，说明是叶子节点但没有输出，也添加到处理列表
                 all_tasks.append(task)
 
         collect_tasks(parse_task)
@@ -511,94 +623,32 @@ class VectorStoreBuilder:
         return all_tasks
 
     def _get_node_parser_for_file_type(self, file_type: str, config: Dict[str, Any]):
-        """根据文件类型获取合适的节点解析器"""
+        """根据文件类型获取合适的节点解析器，使用DocumentPreservingTransformer保留原始文档"""
         chunk_size = config.get("chunk_size", settings.CHUNK_SIZE)
         chunk_overlap = config.get("chunk_overlap", settings.CHUNK_OVERLAP)
 
+        # 根据文件类型选择基础解析器
         if file_type == ".md":
             # Markdown文件使用MarkdownNodeParser，然后配合SentenceSplitter
-            # MarkdownNodeParser主要用于解析markdown结构，然后用SentenceSplitter进行分块
-            return [
+            base_parsers = [
                 MarkdownNodeParser.from_defaults(),
                 SentenceSplitter(chunk_size=chunk_size, chunk_overlap=chunk_overlap),
             ]
         elif file_type in [".html", ".htm"]:
             # HTML文件使用HTMLNodeParser，然后配合SentenceSplitter
-            return [
+            base_parsers = [
                 HTMLNodeParser.from_defaults(),
                 SentenceSplitter(chunk_size=chunk_size, chunk_overlap=chunk_overlap),
             ]
         elif file_type == ".json":
             # JSON文件直接使用DoclingNodeParser
-            return [DoclingNodeParser()]
+            base_parsers = [DoclingNodeParser()]
         else:
             # 文本文件直接使用SentenceSplitter
-            return SentenceSplitter(chunk_size=chunk_size, chunk_overlap=chunk_overlap)
-
-    def _setup_extractors(self, config: Dict[str, Any]) -> List[Any]:
-        """设置提取器"""
-        extractors = []
-
-        # 使用新的智能元数据提取器
-        logger.info(
-            "Using SmartMetadataExtractor with intelligent chunk-level processing"
-        )
-
-        # 创建带有详细日志记录的LLM包装器
-        def create_logging_llm(llm, extractor_name):
-            """
-            创建带有详细日志记录的LLM包装器，使用LlamaIndex的CallbackManager
-            """
-            from llama_index.core.callbacks import CallbackManager, LlamaDebugHandler
-            import llama_index.core
-
-            # 设置全局调试处理器以获取详细的LLM调用信息
-            llama_index.core.set_global_handler("simple")
-
-            # 创建自定义的调试处理器
-            debug_handler = LlamaDebugHandler(print_trace_on_end=True)
-            callback_manager = CallbackManager([debug_handler])
-
-            # 为LLM设置callback manager
-            if hasattr(llm, "callback_manager"):
-                llm.callback_manager = callback_manager
-
-            logger.info(
-                f"[{extractor_name}] LLM logging configured for: {type(llm).__name__} with detailed request/response tracking"
-            )
-            return llm
-
-        smart_llm = create_logging_llm(self.llm, "SmartMetadataExtractor")
-
-        # 确定提取模式
-        extract_mode = config.get("extract_mode", "enhanced")
-
-        # 添加智能元数据提取器
-        extractors.append(
-            SmartMetadataExtractor(
-                llm=smart_llm,
-                min_chunk_size_for_summary=config.get(
-                    "min_chunk_size_for_summary", 500
-                ),
-                min_chunk_size_for_qa=config.get("min_chunk_size_for_qa", 300),
-                max_keywords=config.get("max_keywords", 5),
-                enable_persistent_cache=config.get("enable_persistent_cache", True),
-                cache_dir=config.get("cache_dir", "cache/metadata"),
-                # TODO: 这些参数可能需要根据新的实现调整
-                # num_questions=config.get("num_questions", 3),
-                # show_progress=True,
-                # extract_mode=extract_mode,
-            )
-        )
-
-        logger.info(
-            f"SmartMetadataExtractor configured successfully with mode={extract_mode}"
-        )
-        logger.info(
-            f"Configuration: min_summary_size={config.get('min_chunk_size_for_summary', 500)}, min_qa_size={config.get('min_chunk_size_for_qa', 300)}"
-        )
-
-        return extractors
+            base_parsers = SentenceSplitter(chunk_size=chunk_size, chunk_overlap=chunk_overlap)
+        
+        # 使用DocumentPreservingTransformer包装基础解析器
+        return [DocumentPreservingTransformer(base_parsers)]
 
     def _determine_vector_store_strategy(
         self, origin_file_path: str
@@ -751,7 +801,7 @@ class VectorStoreBuilder:
             if not hasattr(node, "metadata"):
                 continue
 
-            doc_path = node.metadata.get("source_file")  # 拿到向量化的源文件
+            doc_path = node.metadata.get("original_file_path")  # 拿到向量化的源文件
             if not doc_path:
                 continue
 
@@ -1237,10 +1287,9 @@ class VectorStoreBuilder:
                 f"Main task {task_id} detected, skipping output_directory validation"
             )
         else:
-            # 子任务（单文件解析）必须有output_directory
-            output_dir = parse_task.output_directory
-            if not output_dir:
-                raise ValueError(f"No output directory found for subtask {task_id}")
+            # 子任务（单文件解析）基于KNOWLEDGE_BASE_DIR和task_id构建输出目录
+            from config import settings
+            output_dir = os.path.join(settings.KNOWLEDGE_BASE_DIR, "outputs", task_id)
 
             # 检查输出目录是否存在
             if not os.path.exists(output_dir):

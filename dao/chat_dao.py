@@ -17,6 +17,45 @@ from models.database import get_db
 logger = logging.getLogger(__name__)
 
 class ChatDAO:
+    @staticmethod
+    def clear_chat_history(session_id: str, user_id: str) -> bool:
+        """清除会话的聊天记录"""
+        db_gen = None
+        db = None
+        try:
+            db_gen = get_db()
+            db = next(db_gen)
+            # 首先验证会话是否属于该用户
+            session = db.query(ChatSession).filter(
+                and_(
+                    ChatSession.session_id == session_id,
+                    ChatSession.user_id == user_id
+                )
+            ).first()
+
+            if not session:
+                logger.warning(f"Attempt to clear history for non-existent or unauthorized session {session_id} by user {user_id}")
+                return False
+
+            # 删除与会话关联的所有消息
+            num_deleted = db.query(ChatMessage).filter(
+                ChatMessage.session_id == session_id
+            ).delete(synchronize_session=False)
+            
+            db.commit()
+            logger.info(f"Cleared {num_deleted} messages for session {session_id}")
+            return True
+        except Exception as e:
+            if db:
+                db.rollback()
+            logger.error(f"Error clearing chat history for session {session_id}: {e}")
+            return False
+        finally:
+            if db_gen:
+                try:
+                    next(db_gen)
+                except StopIteration:
+                    pass
     """聊天数据访问对象"""
     
     @staticmethod

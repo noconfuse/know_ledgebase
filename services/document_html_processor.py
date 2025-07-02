@@ -10,6 +10,7 @@ from llama_index.core import Document
 from config import settings
 from models.task_models import ParseTask
 from utils.logging_config import get_logger
+from utils.document_utils import truncate_filename
 from services.base_document_processor import BaseDocumentProcessor
 
 logger = get_logger(__name__)
@@ -37,71 +38,73 @@ class DocumentHTMLProcessor(BaseDocumentProcessor):
             html_content = f.read()
         soup = BeautifulSoup(html_content, "html.parser")
 
-        output_dir = Path(settings.OUTPUT_DIR) / task.task_id
+        output_dir = Path(settings.KNOWLEDGE_BASE_DIR) / "outputs" / task.task_id
         output_dir.mkdir(exist_ok=True)
 
-        for a in soup.find_all("a", href=True):
-            href = a["href"]
-            local_filename = None
-            should_process = False
+        # 先不处理附件
+        # for a in soup.find_all("a", href=True):
+        #     href = a["href"]
+        #     local_filename = None
+        #     should_process = False
 
-            if href.startswith("http"):
-                try:
-                    head_response = requests.head(href, timeout=5, allow_redirects=True)
-                    head_response.raise_for_status()
-                    content_type = head_response.headers.get("Content-Type", "").split(";")[0]
-                    if content_type in self.SUPPORTED_MIME_TYPES:
-                        file_ext = self.SUPPORTED_MIME_TYPES[content_type]
-                        local_filename = output_dir / (Path(href).name or f"temp_file{file_ext}")
+        #     if href.startswith("http"):
+        #         try:
+        #             head_response = requests.head(href, timeout=5, allow_redirects=True)
+        #             head_response.raise_for_status()
+        #             content_type = head_response.headers.get("Content-Type", "").split(";")[0]
+        #             if content_type in self.SUPPORTED_MIME_TYPES:
+        #                 file_ext = self.SUPPORTED_MIME_TYPES[content_type]
+        #                 local_filename = output_dir / (Path(href).name or f"temp_file{file_ext}")
                         
-                        r = requests.get(href, timeout=20)
-                        r.raise_for_status()
-                        with open(local_filename, "wb") as f:
-                            f.write(r.content)
-                        logger.info(f"已下载远程文件: {href} -> {local_filename}")
-                        should_process = True
-                    else:
-                        logger.debug(f"跳过不支持的远程文件类型: {href} (Content-Type: {content_type})")
-                except requests.exceptions.RequestException as e:
-                    logger.warning(f"HEAD或GET请求远程文件失败: {href}, {e}")
-                except Exception as e:
-                    logger.warning(f"处理远程文件时发生未知错误: {href}, {e}")
-            else:
-                potential_local_path = Path(task.file_path).parent / href
-                if potential_local_path.is_file() and potential_local_path.suffix.lower() in self.SUPPORTED_EXTENSIONS:
-                    local_filename = potential_local_path
-                    should_process = True
-                else:
-                    logger.debug(f"跳过不支持的本地文件或不存在: {potential_local_path}")
+        #                 r = requests.get(href, timeout=20)
+        #                 r.raise_for_status()
+        #                 with open(local_filename, "wb") as f:
+        #                     f.write(r.content)
+        #                 logger.info(f"已下载远程文件: {href} -> {local_filename}")
+        #                 should_process = True
+        #             else:
+        #                 logger.debug(f"跳过不支持的远程文件类型: {href} (Content-Type: {content_type})")
+        #         except requests.exceptions.RequestException as e:
+        #             logger.warning(f"HEAD或GET请求远程文件失败: {href}, {e}")
+        #         except Exception as e:
+        #             logger.warning(f"处理远程文件时发生未知错误: {href}, {e}")
+        #     else:
+        #         potential_local_path = Path(task.file_path).parent / href
+        #         if potential_local_path.is_file() and potential_local_path.suffix.lower() in self.SUPPORTED_EXTENSIONS:
+        #             local_filename = potential_local_path
+        #             should_process = True
+        #         else:
+        #             logger.debug(f"跳过不支持的本地文件或不存在: {potential_local_path}")
 
-            if should_process and local_filename:
-                try:
-                    # 解析链接文件并获取markdown文件路径
-                    sub_md_path = self._parse_local_file(str(local_filename), task)
-                    if sub_md_path:
-                        # 计算相对于当前HTML输出目录的相对路径
-                        sub_md_path_obj = Path(sub_md_path)
-                        if sub_md_path_obj.exists():
-                            # 如果markdown文件在子任务的输出目录中，需要计算相对路径
-                            try:
-                                # 获取父目录(settings.OUTPUT_DIR)
-                                parent_dir = output_dir.parent
-                                # 计算从父目录开始的相对路径
-                                relative_path = sub_md_path_obj.relative_to(parent_dir)
-                                a["href"] = f"../{relative_path}"
-                            except ValueError:
-                                # 如果不在同一目录树下，使用文件名
-                                a["href"] = sub_md_path_obj.name
-                        else:
-                            logger.warning(f"解析生成的markdown文件不存在: {sub_md_path}")
-                    else:
-                        logger.warning(f"未能获取解析后的markdown文件路径: {local_filename}")
-                except Exception as e:
-                    logger.warning(f"docling解析超链接文件失败: {local_filename}, {e}")
-                    continue
+        #     if should_process and local_filename:
+        #         try:
+        #             # 解析链接文件并获取markdown文件路径
+        #             sub_md_path = self._parse_local_file(str(local_filename), task)
+        #             if sub_md_path:
+        #                 # 计算相对于当前HTML输出目录的相对路径
+        #                 sub_md_path_obj = Path(sub_md_path)
+        #                 if sub_md_path_obj.exists():
+        #                     # 如果markdown文件在子任务的输出目录中，需要计算相对路径
+        #                     try:
+        #                         # 获取父目录(KNOWLEDGE_BASE_DIR/outputs)
+        #                         parent_dir = output_dir.parent
+        #                         # 计算从父目录开始的相对路径
+        #                         relative_path = sub_md_path_obj.relative_to(parent_dir)
+        #                         a["href"] = f"../{relative_path}"
+        #                     except ValueError:
+        #                         # 如果不在同一目录树下，使用文件名
+        #                         a["href"] = sub_md_path_obj.name
+        #                 else:
+        #                     logger.warning(f"解析生成的markdown文件不存在: {sub_md_path}")
+        #             else:
+        #                 logger.warning(f"未能获取解析后的markdown文件路径: {local_filename}")
+        #         except Exception as e:
+        #             logger.warning(f"docling解析超链接文件失败: {local_filename}, {e}")
+        #             continue
 
         base_file_name, _ = os.path.splitext(task.file_name)
-        html_out_path = output_dir / f"{base_file_name}.html"
+        truncated_base_name = truncate_filename(base_file_name, max_length=60, preserve_extension=False)
+        html_out_path = output_dir / f"{truncated_base_name}.html"
         with open(html_out_path, "w", encoding="utf-8") as f:
             f.write(str(soup))
         logger.info(f"HTML处理完成，输出: {html_out_path}")
@@ -134,16 +137,17 @@ class DocumentHTMLProcessor(BaseDocumentProcessor):
             document_parse_task.execute_parse_task()
             
             # 根据统一的路径规则构建输出目录路径
-            sub_output_dir = os.path.join(settings.OUTPUT_DIR, sub_task.task_id)
+            sub_output_dir = os.path.join(settings.KNOWLEDGE_BASE_DIR, "outputs", sub_task.task_id)
             
             # 如果结果中没有对应路径，尝试从输出目录查找
             if os.path.exists(sub_output_dir):
                 # 根据文件扩展名确定输出文件扩展名
                 output_ext = '.html' if sub_task.file_extension in ['.html', '.htm'] else '.md'
                 
-                # 构建输出文件路径
+                # 构建输出文件路径，使用截断函数避免文件名过长
                 base_name = os.path.splitext(sub_task.file_name)[0]
-                output_path = os.path.join(sub_output_dir, f"{base_name}{output_ext}")
+                truncated_base_name = truncate_filename(base_name, max_length=60, preserve_extension=False)
+                output_path = os.path.join(sub_output_dir, f"{truncated_base_name}{output_ext}")
                 
                 if os.path.exists(output_path):
                     return output_path
@@ -157,7 +161,7 @@ class DocumentHTMLProcessor(BaseDocumentProcessor):
             return None
 
     def collect_document(self, parse_task: ParseTask):
-        """收集解析任务的文档（只处理子任务）
+        """收集解析任务的文档
         
         Args:
             parse_task: 解析任务（子任务）
@@ -174,24 +178,27 @@ class DocumentHTMLProcessor(BaseDocumentProcessor):
         documents = []
         logger.info(f"Processing HTML subtask {parse_task.task_id}")
         
-        # 校验解析任务是否有输出目录
-        output_dir = parse_task.output_directory
-        if not output_dir:
-            raise ValueError(f"No output directory found for parse task {parse_task.task_id}")
+        # 基于KNOWLEDGE_BASE_DIR和task_id构建输出目录路径
+        from config import settings
+        output_dir = os.path.join(settings.KNOWLEDGE_BASE_DIR, "outputs", parse_task.task_id)
+        
+        # 校验输出目录是否存在
+        if not os.path.exists(output_dir):
+            raise ValueError(f"Output directory does not exist: {output_dir}")
         
         output_dir = Path(output_dir)
         
         try:
             # 收集主HTML文件
             base_file_name, _ = os.path.splitext(parse_task.file_name)
-            main_html_path = output_dir / f"{base_file_name}.html"
+            truncated_base_name = truncate_filename(base_file_name, max_length=60, preserve_extension=False)
+            main_html_path = output_dir / f"{truncated_base_name}.html"
             if main_html_path.exists():
                 # LlamaIndex Document for the main HTML
                 with open(main_html_path, 'r', encoding='utf-8') as f:
                     html_content = f.read()
                     content_md5 = hashlib.md5(html_content.encode('utf-8')).hexdigest()
                 metadata = {
-                    "source_file": str(main_html_path),
                     "original_file_path": parse_task.file_path,
                     "file_size": main_html_path.stat().st_size,
                     'file_type': '.html',
@@ -205,7 +212,6 @@ class DocumentHTMLProcessor(BaseDocumentProcessor):
                 content = md_file.read_text(encoding='utf-8')
                 content_md5 = hashlib.md5(content.encode('utf-8')).hexdigest()
                 metadata = {
-                    "source_file": str(md_file),
                     "original_file_path": parse_task.file_path, # 指向原始的HTML文件
                     "file_size": md_file.stat().st_size,
                     'file_type': '.md',

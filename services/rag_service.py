@@ -332,8 +332,7 @@ class RAGService:
             # 初始化嵌入模型
             self.embed_model = ModelClientFactory.create_embedding_client(settings.embedding_model_settings)
             
-            # 初始化重排序模型
-            self.reranker = ModelClientFactory.create_rerank_client(settings.rerank_model_settings)
+           
             self.keyword_reranker = KeywordMetadataReranker() # Initialize custom reranker
             self.header_path_reranker = HeaderPathReranker() # Initialize header path reranker
             
@@ -527,31 +526,52 @@ class RAGService:
             
             # 检查是否有数据可用于BM25检索
             try:
-                # 从docstore获取所有文档
-                docs = list(index.docstore.docs.values())
-                if not docs:
-                    logger.warning("No documents found in docstore, using vector retrieval only")
-                    # 如果没有文档，只使用向量检索
-                    query_bundle = QueryBundle(query_str=query)
-                    retrieved_nodes = await vector_retriever.aretrieve(query_bundle)
+                # 对于PostgreSQL索引，需要从storage_context获取docstore
+                docstore = None
+                if settings.VECTOR_STORE_TYPE == "postgres":
+                    # PostgreSQL索引的docstore在storage_context中
+                    if index._storage_context and index._storage_context.docstore:
+                        docstore = index._storage_context.docstore
+                    else:
+                        # 尝试重新获取storage_context
+                        postgres_builder = create_postgres_vector_store_builder(
+                            host=settings.POSTGRES_HOST,
+                            port=settings.POSTGRES_PORT,
+                            database=settings.POSTGRES_DATABASE,
+                            user=settings.POSTGRES_USER,
+                            password=settings.POSTGRES_PASSWORD,
+                            table_name=f"{settings.POSTGRES_TABLE_NAME}_{index_id.replace('-', '_')}",
+                            embed_dim=settings.VECTOR_DIM
+                        )
+                        vector_store = postgres_builder.create_vector_store()
+                        storage_context = postgres_builder._create_storage_context(vector_store)
+                        docstore = storage_context.docstore
                 else:
-                    # 创建BM25检索器
-                    bm25_retriever = BM25Retriever.from_defaults(
-                        docstore=index.docstore,
-                        similarity_top_k=top_k
-                    )
-                    
-                    # 创建融合检索器
-                    fusion_retriever = QueryFusionRetriever(
-                        retrievers=[vector_retriever, bm25_retriever],
-                        similarity_top_k=top_k,
-                        num_queries=3,  # 生成3个查询变体
-                        mode="reciprocal_rerank",
-                    )
-                    
-                    # 执行检索
-                    query_bundle = QueryBundle(query_str=query)
-                    retrieved_nodes = await fusion_retriever.aretrieve(query_bundle)
+                    # FAISS索引使用index.docstore
+                    docstore = index.docstore
+                
+                if not docstore or not docstore.docs:
+                    raise ValueError("BM25 retrieval failed: No documents available in the docstore.")
+                
+                # 创建BM25检索器
+                bm25_retriever = BM25Retriever.from_defaults(
+                    docstore=docstore,
+                    similarity_top_k=top_k
+                )
+                
+                logger.info(f"Created BM25 retriever with {len(docstore.docs)} documents")
+                
+                # 创建融合检索器
+                fusion_retriever = QueryFusionRetriever(
+                    retrievers=[vector_retriever, bm25_retriever],
+                    similarity_top_k=top_k,
+                    num_queries=3,  # 生成3个查询变体
+                    mode="reciprocal_rerank",
+                )
+                
+                # 执行检索
+                query_bundle = QueryBundle(query_str=query)
+                retrieved_nodes = await fusion_retriever.aretrieve(query_bundle)
             except Exception as e:
                 logger.warning(f"BM25 retrieval failed: {e}, falling back to vector retrieval only")
                 # 回退到仅使用向量检索
@@ -560,7 +580,8 @@ class RAGService:
             
             # 应用多层重排序
             # 1. 首先应用语义重排序
-            reranked_nodes = self.reranker.postprocess_nodes(
+            reranker = ModelClientFactory.create_rerank_client(model_config=settings.rerank_model_settings, top_n=top_k)
+            reranked_nodes = reranker.postprocess_nodes(
                 retrieved_nodes, query_bundle
             )
             
@@ -573,7 +594,7 @@ class RAGService:
             keyword_reranked_nodes = self.keyword_reranker.postprocess_nodes(
                 header_reranked_nodes, query_bundle
             )
-            logger.info(keyword_reranked_nodes)
+            logger.info(f'keyword_reranked_nodes:{len(keyword_reranked_nodes)}')
             # 过滤低相似度结果
             filtered_nodes = [
                 node for node in keyword_reranked_nodes 
@@ -620,13 +641,39 @@ class RAGService:
                 
                 # 尝试添加BM25检索器
                 try:
-                    docs = list(index.docstore.docs.values())
-                    if docs:
+                    # 对于PostgreSQL索引，需要从storage_context获取docstore
+                    docstore = None
+                    if settings.VECTOR_STORE_TYPE == "postgres":
+                        # PostgreSQL索引的docstore在storage_context中
+                        if index._storage_context and index._storage_context.docstore:
+                            docstore = index._storage_context.docstore
+                        else:
+                            # 尝试重新获取storage_context
+                            postgres_builder = create_postgres_vector_store_builder(
+                                host=settings.POSTGRES_HOST,
+                                port=settings.POSTGRES_PORT,
+                                database=settings.POSTGRES_DATABASE,
+                                user=settings.POSTGRES_USER,
+                                password=settings.POSTGRES_PASSWORD,
+                                table_name=f"{settings.POSTGRES_TABLE_NAME}_{index_id.replace('-', '_')}",
+                                embed_dim=settings.VECTOR_DIM
+                            )
+                            vector_store = postgres_builder.create_vector_store()
+                            storage_context = postgres_builder._create_storage_context(vector_store)
+                            docstore = storage_context.docstore
+                    else:
+                        # FAISS索引使用index.docstore
+                        docstore = index.docstore
+                    
+                    if docstore and docstore.docs:
                         bm25_retriever = BM25Retriever.from_defaults(
-                            docstore=index.docstore,
+                            docstore=docstore,
                             similarity_top_k=top_k
                         )
                         all_retrievers.append(bm25_retriever)
+                        logger.info(f"Created BM25 retriever for index {index_id} with {len(docstore.docs)} docs")
+                    else:
+                        logger.warning(f"BM25 retrieval failed: No documents available in index {index_id}")
                 except Exception as e:
                     logger.warning(f"Failed to create BM25 retriever for {index_id}: {e}")
             
@@ -646,7 +693,8 @@ class RAGService:
             retrieved_nodes = await fusion_retriever.aretrieve(query_bundle)
             # 应用多层重排序
             # 1. 首先应用语义重排序
-            reranked_nodes = self.reranker.postprocess_nodes(
+            reranker = ModelClientFactory.create_rerank_client(model_config=settings.rerank_model_settings, top_n=top_k)
+            reranked_nodes = reranker.postprocess_nodes(
                 retrieved_nodes, query_bundle
             )
             
@@ -802,7 +850,11 @@ class RAGService:
             if not loaded_indices:
                 raise ValueError("No valid indices could be loaded for the session.")
 
-            node_postprocessors = [self.reranker, self.header_path_reranker, self.keyword_reranker]
+            reranker = ModelClientFactory.create_rerank_client(
+                model_config=settings.rerank_model_settings,
+                top_n=settings.RETRIEVAL_TOP_K
+            )
+            node_postprocessors = [reranker, self.header_path_reranker, self.keyword_reranker]
 
             # 导入必要的模块
             from llama_index.retrievers.bm25 import BM25Retriever
@@ -827,13 +879,15 @@ class RAGService:
                 
                 # 尝试创建BM25检索器
                 try:
-                    if hasattr(index_obj, '_docstore') and len(index_obj._docstore.docs) > 0:
+                    if index_obj._storage_context and index_obj._storage_context.docstore:
                         bm25_retriever = BM25Retriever.from_defaults(
-                            docstore=index_obj._docstore,
-                            similarity_top_k=settings.RETRIEVAL_TOP_K  # 分配一半给BM25检索
+                            docstore=index_obj._storage_context.docstore,
+                            similarity_top_k=settings.RETRIEVAL_TOP_K  
                         )
                         all_retrievers.append(bm25_retriever)
-                        logger.info(f"Created BM25 retriever for index {current_index_id or 'unknown'}")
+                        logger.info(f"Created BM25 retriever for index {current_index_id or 'unknown'} with {len(index_obj.docstore.docs)} docs")
+                    else:
+                        logger.warning(f"BM25 retrieval failed: No documents available in index {current_index_id or 'unknown'}")
                 except Exception as e:
                     logger.warning(f"Failed to create BM25 retriever for index {current_index_id or 'unknown'}: {e}")
             
@@ -941,14 +995,30 @@ class RAGService:
             
             source_nodes_data = []
             if hasattr(streaming_response, 'source_nodes') and streaming_response.source_nodes:
-                source_nodes_data = [
-                    {
-                        "content": node.node.text,
-                        "score": float(node.score),
-                        "metadata": node.node.metadata
-                    }
-                    for node in streaming_response.source_nodes
-                ]
+                # 使用字典来去重，以source为key
+                unique_sources = {}
+                for node in streaming_response.source_nodes:
+                    if node.score > 0.6:
+                        # 获取文件路径作为source
+                        source = node.node.metadata.get('original_file_path', 'unknown')
+                        # 提取文件名作为title
+                        if source != 'unknown':
+                            from pathlib import Path
+                            title = Path(source).name
+                        else:
+                            title = source
+                        
+                        # 如果source已存在，保留score更高的
+                        if source not in unique_sources or node.score > unique_sources[source]['score']:
+                            unique_sources[source] = {
+                                "content": node.node.text,
+                                "score": float(node.score),
+                                "metadata": node.node.metadata,
+                                "source": source,
+                                "title": title
+                            }
+                
+                source_nodes_data = list(unique_sources.values())
             
             # Store source_nodes in session for later retrieval by frontend_service
             session.last_source_nodes = source_nodes_data
@@ -1011,14 +1081,32 @@ class RAGService:
             
             logger.info(f"Final response text: {response_text}")
             
-            source_nodes_info = [
-                {
-                    "content": node.node.text[:200] + "...",
-                    "score": float(node.score),
-                    "metadata": node.node.metadata
-                }
-                for node in response.source_nodes
-            ] if hasattr(response, 'source_nodes') and response.source_nodes else []
+            # 构建source_nodes信息，去重相同source的链接
+            source_nodes_info = []
+            if hasattr(response, 'source_nodes') and response.source_nodes:
+                # 使用字典来去重，以source为key
+                unique_sources = {}
+                for node in response.source_nodes:
+                    # 获取文件路径作为source
+                    source = node.node.metadata.get('file_path', node.node.metadata.get('source', 'unknown'))
+                    # 提取文件名作为title
+                    if source != 'unknown':
+                        from pathlib import Path
+                        title = Path(source).name
+                    else:
+                        title = source
+                    
+                    # 如果source已存在，保留score更高的
+                    if source not in unique_sources or node.score > unique_sources[source]['score']:
+                        unique_sources[source] = {
+                            "content": node.node.text[:200] + "...",
+                            "score": float(node.score),
+                            "metadata": node.node.metadata,
+                            "source": source,
+                            "title": title
+                        }
+                
+                source_nodes_info = list(unique_sources.values())
             
             # 记录助手响应
             session.add_message("assistant", response_text, {

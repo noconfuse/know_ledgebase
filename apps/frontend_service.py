@@ -1,4 +1,5 @@
 from fastapi import FastAPI, HTTPException, BackgroundTasks, Query, Depends
+from fastapi.staticfiles import StaticFiles
 from fastapi.responses import StreamingResponse, JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
@@ -64,6 +65,10 @@ class ExportHistoryRequest(BaseModel):
     session_id: str = Field(..., description="会话ID")
     export_path: Optional[str] = Field(default=None, description="导出文件路径")
 
+class ClearHistoryRequest(BaseModel):
+    """清除历史请求"""
+    session_id: str = Field(..., description="会话ID")
+
 class RecallTestRequest(BaseModel):
     """召回测试请求"""
     index_id: str = Field(..., description="索引ID")
@@ -122,6 +127,9 @@ app.add_middleware(
 
 # 设置全局异常处理器
 setup_exception_handlers(app)
+
+# 挂载静态文件目录
+app.mount("/uploads", StaticFiles(directory=f"{settings.KNOWLEDGE_BASE_DIR}/uploads"), name="uploads")
 
 # 注册认证路由
 app.include_router(auth_router)
@@ -394,6 +402,7 @@ async def chat_stream(
                 session_id=request.session_id,
                 load_history=False
             )
+            
         async def generate_response():
             async for token in rag_service.chat_stream(
                 session_id=request.session_id,
@@ -408,7 +417,8 @@ async def chat_stream(
                     if hasattr(session_obj, 'last_source_nodes'):
                         retrieved_nodes = getattr(session_obj, 'last_source_nodes')
                         if retrieved_nodes is not None and isinstance(retrieved_nodes, list):
-                            source_nodes = retrieved_nodes
+                            # Filter source_nodes by score > 0.6
+                            source_nodes = [node for node in retrieved_nodes if node.get('score', 0) > 0.6]
                         elif retrieved_nodes is not None:
                             logger.warning(f"last_source_nodes for session {request.session_id} is not a list, type: {type(retrieved_nodes)}")
             except Exception as e_sources:
@@ -591,6 +601,53 @@ async def get_chat_history(
             details={"error": str(e)}
         )
 
+@app.delete("/chat/history/{session_id}")
+async def clear_chat_history(
+    session_id: str,
+    current_user: dict = Depends(get_current_active_user)
+) -> JSONResponse:
+    """清除会话的聊天历史"""
+    try:
+        # 验证会话属于当前用户
+        db_session = ChatDAO.get_session_by_user(session_id, current_user["id"])
+        if not db_session:
+            return error_response(
+                message="会话未找到",
+                error_code=ErrorCodes.INDEX_NOT_FOUND,
+                status_code=404
+            )
+        
+        # 清除数据库中的聊天历史
+        success = ChatDAO.clear_chat_history(session_id, current_user["id"])
+        if not success:
+            return error_response(
+                message="清除聊天历史失败",
+                error_code=ErrorCodes.INTERNAL_ERROR,
+                status_code=500
+            )
+        
+        # 清除内存中的聊天历史
+        if session_id in rag_service.sessions:
+            session_obj = rag_service.sessions[session_id]
+            if hasattr(session_obj, 'chat_history'):
+                session_obj.chat_history.clear()
+            if hasattr(session_obj, 'message_count'):
+                session_obj.message_count = 0
+        
+        return success_response(
+            data={"session_id": session_id},
+            message=f"会话 {session_id} 的聊天历史已清除"
+        )
+        
+    except Exception as e:
+        logger.error(f"Error clearing chat history: {e}")
+        return error_response(
+            message="清除聊天历史时发生错误",
+            error_code=ErrorCodes.INTERNAL_ERROR,
+            status_code=500,
+            details={"error": str(e)}
+        )
+
 @app.post("/chat/history/export")
 async def export_chat_history(
     request: ExportHistoryRequest,
@@ -598,26 +655,45 @@ async def export_chat_history(
 ) -> JSONResponse:
     """导出聊天历史"""
     try:
-        export_path = rag_service.export_chat_history(
-            session_id=request.session_id,
-            user_id=current_user["id"],
-            export_path=request.export_path
-        )
-        
-        if export_path is None:
+        history = rag_service.get_chat_history(request.session_id, current_user["id"])
+        if history is None:
             return error_response(
                 message="会话未找到",
                 error_code=ErrorCodes.INDEX_NOT_FOUND,
                 status_code=404
             )
         
-        return success_response(
-            data={
+        # 如果指定了导出路径，保存到文件
+        if request.export_path:
+            import json
+            from datetime import datetime
+            export_data = {
                 "session_id": request.session_id,
-                "export_path": export_path
-            },
-            message="聊天历史导出成功"
-        )
+                "export_time": datetime.utcnow().isoformat(),
+                "history": history
+            }
+            
+            with open(request.export_path, 'w', encoding='utf-8') as f:
+                json.dump(export_data, f, ensure_ascii=False, indent=2)
+            
+            return success_response(
+                data={
+                    "session_id": request.session_id,
+                    "export_path": request.export_path,
+                    "message_count": len(history)
+                },
+                message="聊天历史导出成功"
+            )
+        else:
+            # 直接返回历史数据
+            return success_response(
+                data={
+                    "session_id": request.session_id,
+                    "history": history,
+                    "message_count": len(history)
+                },
+                message="获取聊天历史成功"
+            )
         
     except Exception as e:
         logger.error(f"Error exporting chat history: {e}")

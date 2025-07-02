@@ -19,7 +19,7 @@ from models.parse_task import TaskStatus
 from config import settings
 from common.response import success_response, error_response, ErrorCodes
 from common.exception_handler import setup_exception_handlers
-from utils.logging_config import setup_logging, get_logger
+from utils.logging_config import setup_logging, get_logger, logging
 from services.vector_store_builder import vector_store_builder
 from services.document_parser import document_parser
 from services.directory_vectorizer import DirectoryVectorizer
@@ -32,7 +32,8 @@ from models.database import SessionLocal
 # 初始化日志系统
 setup_logging()
 logger = get_logger(__name__)
-
+watchfiles_logger = get_logger('watchfiles.main')
+watchfiles_logger.setLevel(logging.WARNING)
 # 初始化DAO
 index_dao = IndexDAO()
 chat_dao = ChatDAO()
@@ -706,9 +707,10 @@ async def test_collect_documents(parse_task_id: str):
 
 if __name__ == "__main__":
     import uvicorn
+    
     uvicorn.run(
         "backend_service:app",
         host=settings.DOC_PARSE_HOST,
         port=settings.DOC_PARSE_PORT,
-        reload=True
+        reload=False,
     )

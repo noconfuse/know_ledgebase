@@ -2,6 +2,7 @@ import os
 import json
 import hashlib
 import logging
+import re
 from typing import Dict, Any, Optional
 from pathlib import Path
 from datetime import datetime
@@ -10,7 +11,21 @@ logger = logging.getLogger(__name__)
 
 
 class MetadataCacheManager:
-    """元数据缓存管理器 - 提供文件级别和chunk级别的持久化缓存"""
+    """元数据缓存管理器 - 基于文件名目录结构的持久化缓存
+    
+    新的缓存结构:
+    cache/metadata/
+    ├── document_name_1/
+    │   ├── document_metadata.json  # 文档级元数据
+    │   └── chunks/                 # chunk级元数据目录
+    │       ├── chunk_0.json
+    │       ├── chunk_1.json
+    │       └── ...
+    ├── document_name_2/
+    │   ├── document_metadata.json
+    │   └── chunks/
+    └── ...
+    """
 
     def __init__(self, cache_dir: str = "cache/metadata"):
         """初始化缓存管理器
@@ -19,307 +34,385 @@ class MetadataCacheManager:
             cache_dir: 缓存目录路径
         """
         self.cache_dir = Path(cache_dir)
-        self.chunk_cache_dir = self.cache_dir / "chunks"
         self.cache_dir.mkdir(parents=True, exist_ok=True)
-        self.chunk_cache_dir.mkdir(parents=True, exist_ok=True)
         logger.info(
             f"MetadataCacheManager initialized with cache_dir: {self.cache_dir}"
         )
 
-    def _get_file_hash(self, file_path: str, content: str = None) -> str:
+    def _sanitize_filename(self, filename: str) -> str:
+        """清理文件名，移除或替换不安全的字符
+        
+        Args:
+            filename: 原始文件名
+            
+        Returns:
+            清理后的安全文件名
+        """
+        # 移除路径分隔符和其他不安全字符
+        sanitized = re.sub(r'[<>:"/\\|?*]', '_', filename)
+        # 移除连续的下划线
+        sanitized = re.sub(r'_+', '_', sanitized)
+        # 移除开头和结尾的下划线和点
+        sanitized = sanitized.strip('_.')
+        # 限制长度
+        if len(sanitized) > 100:
+            sanitized = sanitized[:100]
+        # 如果清理后为空，使用默认名称
+        if not sanitized:
+            sanitized = "unknown_document"
+        return sanitized
+    
+    def _get_file_hash(self, content: str) -> str:
         """计算文件的哈希值，用于检测文件变化
 
         Args:
-            file_path: 文件路径
-            content: 文件内容（可选，如果提供则直接使用）
+            content: 文件内容
 
         Returns:
             文件内容的MD5哈希值
         """
-        if content is not None:
-            # 使用提供的内容计算哈希
-            return hashlib.md5(content.encode("utf-8")).hexdigest()
-
-        # 从文件读取内容计算哈希
-        try:
-            if os.path.exists(file_path):
-                with open(file_path, "r", encoding="utf-8") as f:
-                    content = f.read()
-                return hashlib.md5(content.encode("utf-8")).hexdigest()
-        except Exception as e:
-            logger.warning(f"Failed to calculate hash for {file_path}: {e}")
-
-        return ""
-
-    def _get_chunk_cache_key(
-        self, chunk_text: str, extract_config: Dict[str, Any]
-    ) -> str:
-        """生成chunk缓存的唯一key
-
+        return hashlib.md5(content.encode("utf-8")).hexdigest()
+    
+    def _get_document_dir(self, doc_id: str) -> Path:
+        """获取文档的缓存目录路径
+        
         Args:
-            chunk_text: chunk的文本内容
-            extract_config: 提取配置参数
-
+            doc_id: 文档ID
+            
         Returns:
-            chunk缓存的唯一key
+            文档缓存目录路径
         """
-        # 将chunk文本和配置参数组合生成唯一key
-        config_str = json.dumps(extract_config, sort_keys=True)
-        combined_content = f"{chunk_text}||{config_str}"
-        return hashlib.md5(combined_content.encode("utf-8")).hexdigest()
-
-    def _get_chunk_cache_file_path(self, cache_key: str) -> Path:
-        """获取chunk缓存文件路径
-
+        # 从doc_id中提取文件名
+        filename = os.path.basename(doc_id)
+        # 清理文件名
+        safe_filename = self._sanitize_filename(filename)
+        # 为了避免重名，添加doc_id的hash前缀
+        doc_hash = hashlib.md5(doc_id.encode("utf-8")).hexdigest()[:8]
+        dir_name = f"{doc_hash}_{safe_filename}"
+        return self.cache_dir / dir_name
+    
+    def _get_document_metadata_file(self, doc_id: str) -> Path:
+        """获取文档级元数据文件路径
+        
         Args:
-            cache_key: chunk缓存key
-
+            doc_id: 文档ID
+            
+        Returns:
+            文档级元数据文件路径
+        """
+        doc_dir = self._get_document_dir(doc_id)
+        return doc_dir / "document_metadata.json"
+    
+    def _get_chunks_dir(self, doc_id: str) -> Path:
+        """获取文档的chunks目录路径
+        
+        Args:
+            doc_id: 文档ID
+            
+        Returns:
+            chunks目录路径
+        """
+        doc_dir = self._get_document_dir(doc_id)
+        return doc_dir / "chunks"
+    
+    def _get_chunk_file_path(self, doc_id: str, chunk_id: str) -> Path:
+        """获取chunk缓存文件路径
+        
+        Args:
+            doc_id: 文档ID
+            chunk_id: chunk的唯一ID
+            
         Returns:
             chunk缓存文件路径
         """
-        return self.chunk_cache_dir / f"{cache_key}.json"
-
-    def _get_cache_file_path(self, doc_id: str) -> Path:
-        """获取缓存文件路径
-
+        chunks_dir = self._get_chunks_dir(doc_id)
+        return chunks_dir / f"{chunk_id}.json"
+    
+    def _generate_chunk_id(self, chunk_text: str, chunk_index: int = None) -> str:
+        """生成chunk的唯一ID，基于内容哈希
+        
         Args:
-            doc_id: 文档ID
-
+            chunk_text: chunk文本内容
+            chunk_index: chunk索引（可选，用于调试）
+            
         Returns:
-            缓存文件的完整路径
+            chunk的唯一ID
         """
-        # 使用doc_id的哈希值作为文件名，避免特殊字符问题
-        cache_filename = hashlib.md5(doc_id.encode("utf-8")).hexdigest() + ".json"
-        return self.cache_dir / cache_filename
+        # 使用chunk文本内容生成哈希作为唯一ID
+        content_hash = hashlib.sha256(chunk_text.encode('utf-8')).hexdigest()[:16]
+        
+        # 如果提供了索引，可以在ID中包含索引信息用于调试
+        if chunk_index is not None:
+            return f"chunk_{chunk_index}_{content_hash}"
+        else:
+            return f"chunk_{content_hash}"
 
     def get_cached_metadata(
-        self, doc_id: str, file_path: str = None, content: str = None
+        self, doc_id: str, content: str = None
     ) -> Optional[Dict[str, Any]]:
-        """获取缓存的元数据
+        """获取缓存的文档级元数据
 
         Args:
             doc_id: 文档ID
-            file_path: 原始文件路径（用于验证文件是否变化）
-            content: 文件内容（可选，如果提供则用于验证）
+            content: 文件内容（可选，如果提供则用于验证文件是否变化）
 
         Returns:
             缓存的元数据，如果缓存无效或不存在则返回None
         """
-        cache_file = self._get_cache_file_path(doc_id)
+        metadata_file = self._get_document_metadata_file(doc_id)
 
-        if not cache_file.exists():
-            logger.debug(f"No cache found for doc_id: {doc_id}")
+        if not metadata_file.exists():
+            logger.debug(f"No document metadata cache found for doc_id: {doc_id}")
             return None
 
         try:
-            with open(cache_file, "r", encoding="utf-8") as f:
+            with open(metadata_file, "r", encoding="utf-8") as f:
                 cache_data = json.load(f)
 
             # 验证缓存版本
-            if cache_data.get("version") != "1.0":
+            if cache_data.get("version") != "2.0":
                 logger.warning(
                     f"Cache version mismatch for {doc_id}, invalidating cache"
                 )
                 return None
 
-            # 如果提供了文件路径或内容，验证文件是否发生变化
-            if file_path or content:
-                current_hash = self._get_file_hash(file_path, content)
+            # 如果提供了内容，验证文件是否发生变化
+            if content:
+                current_hash = self._get_file_hash(content)
                 cached_hash = cache_data.get("file_hash", "")
 
                 if current_hash != cached_hash:
                     logger.info(f"File content changed for {doc_id}, cache invalidated")
                     return None
 
-            logger.info(f"Cache hit for doc_id: {doc_id}")
-            metadata = cache_data.get("metadata")
-            
-            # 修复可能存在的嵌套metadata问题
-            if isinstance(metadata, dict) and "metadata" in metadata:
-                logger.warning(f"Detected nested metadata structure in cache for {doc_id}, fixing...")
-                # 如果metadata中包含嵌套的metadata，返回正确的结构
-                fixed_metadata = metadata.get("metadata", {})
-                chunk_template = metadata.get("chunk_template", "")
-                return {
-                    "metadata": fixed_metadata,
-                    "chunk_template": chunk_template
-                }
-            
-            return metadata
+            logger.info(f"Document metadata cache hit for doc_id: {doc_id}")
+            return cache_data.get("metadata")
 
         except Exception as e:
-            logger.error(f"Error reading cache for {doc_id}: {e}")
+            logger.error(f"Error reading document metadata cache for {doc_id}: {e}")
             return None
 
     def save_metadata_to_cache(
-        self,
-        doc_id: str,
-        metadata: Dict[str, Any],
-        file_path: str = None,
-        content: str = None,
-    ):
-        """保存元数据到缓存
+        self, doc_id: str, metadata: Dict[str, Any], content: str = None
+    ) -> bool:
+        """保存文档级元数据到缓存
 
         Args:
             doc_id: 文档ID
             metadata: 要缓存的元数据
-            file_path: 原始文件路径
-            content: 文件内容（可选）
-        """
-        cache_file = self._get_cache_file_path(doc_id)
+            content: 文件内容（可选，如果提供则计算文件哈希）
 
+        Returns:
+            是否保存成功
+        """
         try:
-            # 计算文件哈希
-            file_hash = (
-                self._get_file_hash(file_path, content)
-                if (file_path or content)
-                else ""
-            )
+            # 确保文档目录存在
+            doc_dir = self._get_document_dir(doc_id)
+            doc_dir.mkdir(parents=True, exist_ok=True)
+            
+            metadata_file = self._get_document_metadata_file(doc_id)
 
             cache_data = {
-                "version": "1.0",
+                "version": "2.0",
+                "timestamp": datetime.now().isoformat(),
                 "doc_id": doc_id,
-                "file_path": file_path,
-                "file_hash": file_hash,
-                "cached_at": datetime.utcnow().isoformat(),
                 "metadata": metadata,
             }
 
-            with open(cache_file, "w", encoding="utf-8") as f:
+            # 如果提供了内容，计算并保存文件哈希
+            if content:
+                cache_data["file_hash"] = self._get_file_hash(content)
+
+            with open(metadata_file, "w", encoding="utf-8") as f:
                 json.dump(cache_data, f, ensure_ascii=False, indent=2)
 
-            logger.info(f"Metadata cached for doc_id: {doc_id}")
+            logger.info(f"Document metadata cached for doc_id: {doc_id}")
+            return True
 
         except Exception as e:
-            logger.error(f"Error saving cache for {doc_id}: {e}")
+            logger.error(f"Error saving document metadata to cache for {doc_id}: {e}")
+            return False
 
     def clear_cache(self, doc_id: str = None):
         """清除缓存
 
         Args:
-            doc_id: 要清除的文档ID，如果为None则清除所有缓存
+            doc_id: 如果指定，只清除特定文档的缓存；否则清除所有缓存
         """
-        if doc_id:
-            cache_file = self._get_cache_file_path(doc_id)
-            if cache_file.exists():
-                cache_file.unlink()
-                logger.info(f"Cache cleared for doc_id: {doc_id}")
-        else:
-            # 清除所有缓存文件
-            for cache_file in self.cache_dir.glob("*.json"):
-                cache_file.unlink()
-            logger.info("All metadata cache cleared")
+        try:
+            if doc_id:
+                doc_dir = self._get_document_dir(doc_id)
+                if doc_dir.exists():
+                    import shutil
+                    shutil.rmtree(doc_dir)
+                    logger.info(f"Cache cleared for doc_id: {doc_id}")
+            else:
+                if self.cache_dir.exists():
+                    import shutil
+                    shutil.rmtree(self.cache_dir)
+                    self.cache_dir.mkdir(parents=True, exist_ok=True)
+                    logger.info("All cache cleared")
+
+        except Exception as e:
+            logger.error(f"Error clearing cache: {e}")
 
     def get_cache_stats(self) -> Dict[str, Any]:
         """获取缓存统计信息
 
         Returns:
-            缓存统计信息
+            包含缓存统计信息的字典
         """
-        cache_files = list(self.cache_dir.glob("*.json"))
-        total_size = sum(f.stat().st_size for f in cache_files)
-
-        return {
-            "cache_dir": str(self.cache_dir),
-            "total_files": len(cache_files),
-            "total_size_bytes": total_size,
-            "total_size_mb": round(total_size / (1024 * 1024), 2),
-        }
-
-    def get_chunk_metadata_from_cache(
-        self, chunk_text: str, extract_config: Dict[str, Any]
-    ) -> Optional[Dict[str, Any]]:
-        """从缓存获取chunk元数据
-
-        Args:
-            chunk_text: chunk的文本内容
-            extract_config: 提取配置参数
-
-        Returns:
-            缓存的chunk元数据，如果不存在则返回None
-        """
-        cache_key = self._get_chunk_cache_key(chunk_text, extract_config)
-        cache_file = self._get_chunk_cache_file_path(cache_key)
-
-        if not cache_file.exists():
-            return None
-
         try:
-            with open(cache_file, "r", encoding="utf-8") as f:
-                cache_data = json.load(f)
+            if not self.cache_dir.exists():
+                return {
+                    "total_documents": 0,
+                    "total_chunks": 0,
+                    "total_size_mb": 0.0,
+                    "cache_dir": str(self.cache_dir),
+                }
 
-            # 验证缓存数据的完整性
-            if not all([
-                "chunk_metadata" in cache_data,
-                "cached_at" in cache_data,
-            ]):
-                return None
-
-            # 验证元数据是否是无用数据
-            if cache_data["chunk_metadata"].get("summary") == "元数据提取失败 - API响应异常":
-                return None
+            total_documents = 0
+            total_chunks = 0
+            total_size = 0
             
-            chunk_metadata = cache_data["chunk_metadata"]
-            
-            # 修复可能存在的嵌套metadata问题
-            if isinstance(chunk_metadata, dict) and "metadata" in chunk_metadata:
-                logger.warning(f"Detected nested metadata structure in chunk cache for key: {cache_key[:8]}..., fixing...")
-                # 如果chunk_metadata中包含嵌套的metadata，提取正确的内容
-                if isinstance(chunk_metadata["metadata"], dict):
-                    # 将嵌套的metadata内容合并到顶层
-                    fixed_metadata = {**chunk_metadata}
-                    nested_metadata = fixed_metadata.pop("metadata", {})
-                    fixed_metadata.update(nested_metadata)
-                    chunk_metadata = fixed_metadata
-                
-            logger.debug(f"Chunk cache hit for key: {cache_key[:8]}...")
-            return chunk_metadata
+            # 遍历所有文档目录
+            for doc_dir in self.cache_dir.iterdir():
+                if doc_dir.is_dir():
+                    total_documents += 1
+                    
+                    # 统计文档级元数据文件
+                    doc_metadata_file = doc_dir / "document_metadata.json"
+                    if doc_metadata_file.exists():
+                        total_size += doc_metadata_file.stat().st_size
+                    
+                    # 统计chunk级元数据文件
+                    chunks_dir = doc_dir / "chunks"
+                    if chunks_dir.exists():
+                        chunk_files = list(chunks_dir.glob("*.json"))
+                        total_chunks += len(chunk_files)
+                        total_size += sum(f.stat().st_size for f in chunk_files)
 
-        except Exception as e:
-            logger.warning(f"Error reading chunk cache {cache_key}: {e}")
-
-        return None
-
-    def save_chunk_metadata_to_cache(
-        self,
-        chunk_text: str,
-        extract_config: Dict[str, Any],
-        chunk_metadata: Dict[str, Any],
-    ):
-        """保存chunk元数据到缓存
-
-        Args:
-            chunk_text: chunk的文本内容
-            extract_config: 提取配置参数
-            chunk_metadata: chunk元数据
-        """
-        cache_key = self._get_chunk_cache_key(chunk_text, extract_config)
-        cache_file = self._get_chunk_cache_file_path(cache_key)
-
-        try:
-            cache_data = {
-                "version": "1.0",
-                "cache_key": cache_key,
-                "chunk_text_hash": hashlib.md5(chunk_text.encode("utf-8")).hexdigest(),
-                "extract_config": extract_config,
-                "cached_at": datetime.utcnow().isoformat(),
-                "chunk_metadata": chunk_metadata,
+            return {
+                "total_documents": total_documents,
+                "total_chunks": total_chunks,
+                "total_size_mb": total_size / (1024 * 1024),
+                "cache_dir": str(self.cache_dir),
             }
 
-            with open(cache_file, "w", encoding="utf-8") as f:
+        except Exception as e:
+            logger.error(f"Error getting cache stats: {e}")
+            return {
+                "total_documents": 0,
+                "total_chunks": 0,
+                "total_size_mb": 0.0,
+                "cache_dir": str(self.cache_dir),
+                "error": str(e),
+            }
+
+    def get_chunk_metadata_from_cache(self, doc_id: str, chunk_text: str, chunk_index: int = None) -> Optional[Dict[str, Any]]:
+        """从缓存中获取chunk元数据
+        
+        Args:
+            doc_id: 文档ID
+            chunk_text: chunk文本内容
+            chunk_index: chunk索引（可选）
+            
+        Returns:
+            chunk元数据，如果不存在则返回None
+        """
+        try:
+            # 生成基于内容的chunk ID
+            chunk_id = self._generate_chunk_id(chunk_text, chunk_index)
+            chunk_file_path = self._get_chunk_file_path(doc_id, chunk_id)
+            
+            if not chunk_file_path.exists():
+                return None
+                
+            with open(chunk_file_path, 'r', encoding='utf-8') as f:
+                cached_data = json.load(f)
+                
+            # 检查缓存版本
+            if cached_data.get('version') != "2.0":
+                logger.warning(f"Cache version mismatch for chunk {chunk_id} in doc {doc_id}")
+                return None
+                
+            # 验证chunk内容是否匹配（额外的安全检查）
+            cached_chunk_text = cached_data.get('chunk_text', '')
+            if cached_chunk_text != chunk_text:
+                logger.warning(f"Chunk content mismatch for {chunk_id} in doc {doc_id}, cache may be stale")
+                return None
+                
+            return cached_data.get('metadata')
+            
+        except Exception as e:
+            logger.error(f"Error reading chunk metadata from cache: {e}")
+            return None
+
+    def save_chunk_metadata_to_cache(
+        self, doc_id: str, chunk_text: str, metadata: Dict[str, Any], chunk_index: int = None
+    ) -> bool:
+        """保存chunk级别的元数据到缓存
+
+        Args:
+            doc_id: 文档ID
+            chunk_text: chunk文本内容
+            metadata: chunk的元数据
+            chunk_index: chunk索引（可选）
+
+        Returns:
+            是否保存成功
+        """
+        try:
+            # 生成基于内容的chunk ID
+            chunk_id = self._generate_chunk_id(chunk_text, chunk_index)
+            
+            # 确保chunk目录存在
+            chunks_dir = self._get_chunks_dir(doc_id)
+            chunks_dir.mkdir(parents=True, exist_ok=True)
+
+            chunk_file = self._get_chunk_file_path(doc_id, chunk_id)
+
+            cache_data = {
+                "version": "2.0",
+                "doc_id": doc_id,
+                "chunk_id": chunk_id,
+                "chunk_text": chunk_text,  # 保存chunk文本用于验证
+                "metadata": metadata,
+                "timestamp": datetime.now().isoformat(),
+            }
+
+            with open(chunk_file, "w", encoding="utf-8") as f:
                 json.dump(cache_data, f, ensure_ascii=False, indent=2)
 
-            logger.debug(f"Chunk metadata cached with key: {cache_key[:8]}...")
+            logger.debug(f"Chunk metadata cached for {doc_id}:{chunk_id}")
+            return True
 
         except Exception as e:
-            logger.error(f"Error saving chunk cache {cache_key}: {e}")
+            logger.error(f"Error saving chunk metadata to cache: {e}")
+            return False
 
-    def clear_chunk_cache(self):
-        """清除所有chunk缓存"""
+    def clear_chunk_cache(self, doc_id: str = None):
+        """清除chunk缓存
+        
+        Args:
+            doc_id: 如果指定，只清除特定文档的chunk缓存；否则清除所有chunk缓存
+        """
         try:
-            for cache_file in self.chunk_cache_dir.glob("*.json"):
-                cache_file.unlink()
-            logger.info("All chunk cache cleared")
+            if doc_id:
+                chunks_dir = self._get_chunks_dir(doc_id)
+                if chunks_dir.exists():
+                    import shutil
+                    shutil.rmtree(chunks_dir)
+                    logger.info(f"Chunk cache cleared for doc_id: {doc_id}")
+            else:
+                # 清除所有文档的chunk缓存
+                for doc_dir in self.cache_dir.iterdir():
+                    if doc_dir.is_dir():
+                        chunks_dir = doc_dir / "chunks"
+                        if chunks_dir.exists():
+                            import shutil
+                            shutil.rmtree(chunks_dir)
+                logger.info("All chunk cache cleared")
         except Exception as e:
             logger.error(f"Error clearing chunk cache: {e}")
 
@@ -327,12 +420,45 @@ class MetadataCacheManager:
         """获取chunk缓存统计信息
 
         Returns:
-            chunk缓存统计信息
+            包含chunk缓存统计信息的字典
         """
-        cache_files = list(self.chunk_cache_dir.glob("*.json"))
-        total_size = sum(f.stat().st_size for f in cache_files)
+        try:
+            if not self.cache_dir.exists():
+                return {
+                    "total_chunks": 0,
+                    "total_documents_with_chunks": 0,
+                    "total_size_mb": 0.0,
+                    "cache_dir": str(self.cache_dir),
+                }
 
-        return {
-            "chunk_cache_files": len(cache_files),
-            "chunk_cache_size_mb": total_size / (1024 * 1024),
-        }
+            total_chunks = 0
+            total_documents_with_chunks = 0
+            total_size = 0
+            
+            # 遍历所有文档目录
+            for doc_dir in self.cache_dir.iterdir():
+                if doc_dir.is_dir():
+                    chunks_dir = doc_dir / "chunks"
+                    if chunks_dir.exists():
+                        chunk_files = list(chunks_dir.glob("*.json"))
+                        if chunk_files:
+                            total_documents_with_chunks += 1
+                            total_chunks += len(chunk_files)
+                            total_size += sum(f.stat().st_size for f in chunk_files)
+
+            return {
+                "total_chunks": total_chunks,
+                "total_documents_with_chunks": total_documents_with_chunks,
+                "total_size_mb": total_size / (1024 * 1024),
+                "cache_dir": str(self.cache_dir),
+            }
+
+        except Exception as e:
+            logger.error(f"Error getting chunk cache stats: {e}")
+            return {
+                "total_chunks": 0,
+                "total_documents_with_chunks": 0,
+                "total_size_mb": 0.0,
+                "cache_dir": str(self.cache_dir),
+                "error": str(e),
+            }

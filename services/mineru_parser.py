@@ -18,7 +18,11 @@ from .document_post_processor import DocumentPostProcessor
 from magic_pdf.data.data_reader_writer import FileBasedDataWriter, FileBasedDataReader
 from magic_pdf.data.dataset import PymuDocDataset
 from magic_pdf.model.doc_analyze_by_custom_model import doc_analyze
+from magic_pdf.pipe.UNIPipe import UNIPipe
+from magic_pdf.pipe.OCRPipe import OCRPipe
+from magic_pdf.pipe.TXTpipe import TXTPipe
 from magic_pdf.config.enums import SupportedPdfParseMethod
+from utils.document_utils import truncate_filename
 from models.task_models import ParseTask
 from models.parse_task import TaskStatus
 from dao.task_dao import TaskDAO
@@ -47,7 +51,7 @@ class MinerUDocumentParser:
             self.task_dao = TaskDAO()
             self._initialized = True
             logger.info(f"MinerUDocumentParser初始化完成")
-            logger.info(f"MinerU输出目录: {settings.OUTPUT_DIR}")
+            logger.info(f"MinerU输出目录: {os.path.join(settings.KNOWLEDGE_BASE_DIR, 'outputs')}")
             logger.info(f"MinerU最大并发数: {settings.MINERU_MAX_WORKERS}")
     
     async def parse_document(
@@ -233,7 +237,7 @@ class MinerUDocumentParser:
     def _prepare_output_directory(self, task: ParseTask) -> str:
         """准备输出目录"""
         # 使用与Docling相同的目录结构: OUTPUT_DIR / task_id
-        output_dir = os.path.join(settings.OUTPUT_DIR, task.task_id)
+        output_dir = os.path.join(settings.KNOWLEDGE_BASE_DIR, "outputs", task.task_id)
         os.makedirs(output_dir, exist_ok=True)
         
         logger.info(f"MinerU输出目录: {output_dir}")
@@ -349,6 +353,8 @@ class MinerUDocumentParser:
     def _parse_single_pdf(self, pdf_path: str, output_root: str) -> Dict:
         """处理单个 PDF 文件"""
         file_stem = Path(pdf_path).stem
+        # 使用截断函数避免文件名过长
+        truncated_file_stem = truncate_filename(file_stem, max_length=60, preserve_extension=False)
         # 直接使用传入的output_root作为输出目录，不再创建子目录
         output_dir = output_root
         os.makedirs(output_dir, exist_ok=True)
@@ -369,7 +375,7 @@ class MinerUDocumentParser:
 
         result_paths = self._generate_output_files(
             output_dir,
-            file_stem,
+            truncated_file_stem,
             infer_result,
             pipe_result,
             md_writer,

@@ -1,3 +1,14 @@
 {
-    "sqliteViewer.maxFileSize": 400
+    "sqliteViewer.maxFileSize": 400,
+    "sqltools.connections": [
+        {
+            "previewLimit": 50,
+            "server": "localhost",
+            "port": 5432,
+            "driver": "PostgreSQL",
+            "name": "rag",
+            "database": "knowledge_base",
+            "username": "postgres"
+        }
+    ]
 }

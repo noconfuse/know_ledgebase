@@ -1,6 +1,39 @@
 import os
 import json
 from pathlib import Path
+import hashlib
+
+def truncate_filename(filename, max_length=60, preserve_extension=True):
+    """截断文件名以避免文件系统长度限制
+    
+    Args:
+        filename: 原始文件名
+        max_length: 最大长度限制（默认60字符，因为存在中文文件名）
+        preserve_extension: 是否保留文件扩展名
+    
+    Returns:
+        截断后的文件名
+    """
+    if len(filename) <= max_length:
+        return filename
+    
+    if preserve_extension:
+        name, ext = os.path.splitext(filename)
+        # 为扩展名和哈希值预留空间
+        available_length = max_length - len(ext) - 9  # 9 = '_' + 8位哈希
+        if available_length > 0:
+            # 使用原文件名的哈希值作为唯一标识
+            name_hash = hashlib.md5(name.encode('utf-8')).hexdigest()[:8]
+            truncated_name = name[:available_length] + '_' + name_hash
+            return truncated_name + ext
+        else:
+            # 如果扩展名太长，只保留哈希值
+            name_hash = hashlib.md5(filename.encode('utf-8')).hexdigest()[:8]
+            return name_hash + ext
+    else:
+        # 不保留扩展名的情况
+        name_hash = hashlib.md5(filename.encode('utf-8')).hexdigest()[:8]
+        return filename[:max_length-9] + '_' + name_hash
 
 def build_content_list_from_markdown(markdown_content):
     """将markdown内容按段落分割并构建content_list（兼容原有逻辑）"""

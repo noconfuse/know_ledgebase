@@ -2,9 +2,7 @@
 import os
 import re
 import json
-import os
-import re
-import json
+import string
 from typing import Dict, List, Tuple, Any
 from pathlib import Path
 import hashlib
@@ -17,6 +15,7 @@ from llama_index.core import Document
 from models.parse_task import TaskStatus
 from models.task_models import ParseTask
 from utils.logging_config import get_logger
+from utils.document_utils import build_content_list_from_markdown, MarkdownFileExporter, JsonFileExporter, extract_tables, truncate_filename
 from services.base_document_processor import BaseDocumentProcessor
 
 logger = get_logger(__name__)
@@ -31,19 +30,78 @@ class DocumentDoclingProcessor(BaseDocumentProcessor):
             r"^(第[一二三四五六七八九十\-\d\s]*章)",
             r"^(第[一二三四五六七八九十\-\d\s]*条)", # 第一条
             r"^(第[\d\s]*节)",
-            r"^(\d+\.\d+\.\d+)\s*",  # 3.1.2
-            r"^(\d+\.\d+\.\d+\.\d+)\s*",  # 3.1.2.1
-            r"^(\d+\.\d+)\s*",  # 3.1
             r"^([一二三四五六七八九十]+)\s*",
         ]
-        self.default_level_names = ["章", "节", "条", "项", "款", "目", "段"]
+        self.CHINESE_PUNCTUATION = {'，', '。', '；', '：', '？', '！', '"', '"', '、', '《', '》'}
         logger.info("DocumentPostProcessor初始化完成")
     
     def has_chinese_punctuation(self, text: str) -> bool:
         """判断文本是否包含中文标点符号"""
         # 定义中文标点符号集合（可根据实际文档特征扩展）
-        CHINESE_PUNCTUATION = {'，', '。', '；', '：', '？', '！', '"', '"', '、', '《', '》'}
-        return any(char in CHINESE_PUNCTUATION for char in text)
+        return any(char in self.CHINESE_PUNCTUATION for char in text)
+
+    def _is_isolated_text(self, text: str) -> bool:
+        """判断是否为孤立文本
+        
+        孤立文本的特征：
+        1. 长度过短（少于3个字符）
+        2. 只包含标点符号或空白字符
+        3. 只包含数字
+        4. 只包含单个字符（除非是有意义的标题）
+        5. 常见的无意义片段
+        
+        Args:
+            text: 待检查的文本
+            
+        Returns:
+            bool: True表示是孤立文本，应该被过滤
+        """
+        if not text or not text.strip():
+            return True
+        
+        text = text.strip()
+        
+        # 长度过短的文本（少于2个字符）
+        if len(text) < 2:
+            return True
+        
+        # 只包含标点符号和空白字符
+        # 检查是否只包含空白字符和标点符号
+        # 构建一个包含所有中英文标点符号的字符集
+        all_punctuation = string.punctuation + "".join(self.CHINESE_PUNCTUATION)
+        # 创建一个安全的正则表达式，对特殊字符进行转义
+        pattern = f'^[\s{re.escape(all_punctuation)}]+$'
+        if re.match(pattern, text, re.UNICODE):
+            return True
+        
+        # 只包含数字
+        if text.isdigit():
+            return True
+        
+        # 常见的无意义片段
+        meaningless_patterns = [
+            r'^[\d\s\-\.]+$',  # 只包含数字、空格、横线、点号
+            r'^[a-zA-Z]$',      # 单个英文字母
+            r'^[\(\)\[\]\{\}]+$',  # 只包含括号
+            r'^[\.,;:!?]+$',    # 只包含标点符号
+            r'^目$',            # 单独的"目"字（可能是目录残留）
+            r'^录$',            # 单独的"录"字
+            r'^第$',            # 单独的"第"字
+            r'^章$',            # 单独的"章"字
+            r'^条$',            # 单独的"条"字
+            r'^节$',            # 单独的"节"字
+            r'^页$',            # 单独的"页"字
+        ]
+        
+        for pattern in meaningless_patterns:
+            if re.match(pattern, text):
+                return True
+        
+        # 长度为2-3个字符但只包含重复字符的文本
+        if len(text) <= 3 and len(set(text)) == 1:
+            return True
+        
+        return False
     
     def _convert_table_cells_to_markdown(self, table_cells: List[Dict[str, Any]]) -> str:
         """将table_cells数据转换为markdown表格格式
@@ -141,12 +199,13 @@ class DocumentDoclingProcessor(BaseDocumentProcessor):
         """
         os.makedirs(output_dir, exist_ok=True)
 
-        # 移除文件名中的扩展名，以避免重复后缀
+        # 移除文件名中的扩展名，以避免重复后缀，并使用截断函数避免文件名过长
         base_file_name, _ = os.path.splitext(file_name)
+        truncated_base_name = truncate_filename(base_file_name, max_length=60, preserve_extension=False)
 
-        json_export_path = os.path.join(output_dir, f"{base_file_name}.json")
-        markdown_export_path = os.path.join(output_dir, f"{base_file_name}.md")
-        content_list_path = os.path.join(output_dir, f"{base_file_name}_content_list.json")
+        json_export_path = os.path.join(output_dir, f"{truncated_base_name}.json")
+        markdown_export_path = os.path.join(output_dir, f"{truncated_base_name}.md")
+        content_list_path = os.path.join(output_dir, f"{truncated_base_name}_content_list.json")
 
         # 导出原始JSON和markdown
         with open(json_export_path, 'w', encoding='utf-8') as f:
@@ -316,13 +375,15 @@ class DocumentDoclingProcessor(BaseDocumentProcessor):
             if item["type"] != "text":
                 # 非文本内容直接添加
                 if item["type"] == "image":
-                    enhanced_lines.append(f"![Image]({item.get('text', '')})") 
+                    # enhanced_lines.append(f"![Image]({item.get('text', '')})") 
+                    # 先不处理
+                    continue
                 elif item["type"] == "table":
                     enhanced_lines.append(item.get('text', ''))
                 continue
                 
             text = item.get("text", "").strip()
-            if not text:
+            if not text or self._is_isolated_text(text):
                 continue
             
             # 删除文本开头的所有#号及其后面的空格
@@ -404,18 +465,22 @@ class DocumentDoclingProcessor(BaseDocumentProcessor):
         documents = []
         logger.info(f"Processing Docling subtask {parse_task.task_id}")
         
-        # 校验解析任务是否有输出目录
-        output_dir = parse_task.output_directory
-        if not output_dir:
-            raise ValueError(f"No output directory found for parse task {parse_task.task_id}")
+        # 基于KNOWLEDGE_BASE_DIR和task_id构建输出目录路径
+        from config import settings
+        output_dir = os.path.join(settings.KNOWLEDGE_BASE_DIR, "outputs", parse_task.task_id)
+        
+        # 校验输出目录是否存在
+        if not os.path.exists(output_dir):
+            raise ValueError(f"Output directory does not exist: {output_dir}")
         
         directory_path = Path(output_dir)
 
         try:
             # 获取原始文档名称,并移除后缀
             base_file_name, _ = os.path.splitext(parse_task.file_name)
-            content_file = directory_path / f"{base_file_name}.md"
-            content_json_path = directory_path / f"{base_file_name}.json"
+            truncated_base_name = truncate_filename(base_file_name, max_length=60, preserve_extension=False)
+            content_file = directory_path / f"{truncated_base_name}.md"
+            content_json_path = directory_path / f"{truncated_base_name}.json"
             
             if content_file.exists():
                 # 读取markdown内容
@@ -426,7 +491,6 @@ class DocumentDoclingProcessor(BaseDocumentProcessor):
 
                 # 初始元数据
                 metadata = {
-                    "source_file": str(content_json_path),
                     "original_file_path": parse_task.file_path,
                     "file_size": parse_task.file_size,
                     "mime_type": parse_task.mime_type,
