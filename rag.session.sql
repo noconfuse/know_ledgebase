@@ -1,4 +1,4 @@
 
 
-DROP TABLE data_vector_store_690034ec_919f_4841_8a51_fc235947a0ed;
+DROP TABLE data_vector_store_252a3f26_8960_4a2a_9aaf_a4984a1ee1ff;
 

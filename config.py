@@ -144,20 +144,32 @@ class Settings(BaseSettings):
     POSTGRES_PASSWORD: str = os.getenv("POSTGRES_PASSWORD", "postgres")
     POSTGRES_TABLE_NAME: str = os.getenv("POSTGRES_TABLE_NAME", "vector_store")
     
-    # 文本分块配置
-    CHUNK_SIZE: int = 512
-    CHUNK_OVERLAP: int = 50
+    
+    # 不同文档类型的分块配置
+    LEGAL_CHUNK_SIZE: int = int(os.getenv("LEGAL_CHUNK_SIZE", "1000"))  # 法律文档使用更大的分块
+    LEGAL_CHUNK_OVERLAP: int = int(os.getenv("LEGAL_CHUNK_OVERLAP", "50"))  # 法律文档重叠稍小
+    POLICY_CHUNK_SIZE: int = int(os.getenv("POLICY_CHUNK_SIZE", "1000"))  # 政策文档中等分块
+    POLICY_CHUNK_OVERLAP: int = int(os.getenv("POLICY_CHUNK_OVERLAP", "100"))  # 政策文档重叠中等
+    GENERAL_CHUNK_SIZE: int = int(os.getenv("GENERAL_CHUNK_SIZE", "800"))  # 一般文档标准分块
+    GENERAL_CHUNK_OVERLAP: int = int(os.getenv("GENERAL_CHUNK_OVERLAP", "100"))  # 一般文档标准重叠
     
     # 元数据提取配置
-    MIN_CHUNK_SIZE_FOR_EXTRACTION: int = int(os.getenv("MIN_CHUNK_SIZE_FOR_EXTRACTION", "100"))  # 进行元数据提取的最小chunk大小
+    MIN_CHUNK_SIZE_FOR_EXTRACTION: int = int(os.getenv("MIN_CHUNK_SIZE_FOR_EXTRACTION", "20"))  # 进行元数据提取的最小chunk大小
     MIN_CHUNK_SIZE_FOR_SUMMARY: int = int(os.getenv("MIN_CHUNK_SIZE_FOR_SUMMARY", "512"))  # 生成摘要的最小chunk大小
     MIN_CHUNK_SIZE_FOR_QA: int = int(os.getenv("MIN_CHUNK_SIZE_FOR_QA", "1024"))  # 生成问答对的最小chunk大小
     MAX_KEYWORDS: int = int(os.getenv("MAX_KEYWORDS", "5"))  # 要提取的最大关键词数
     
+    # 文档内容优化配置
+    DOC_CONTENT_OPTIMIZATION_THRESHOLD: int = int(os.getenv("DOC_CONTENT_OPTIMIZATION_THRESHOLD", "10000"))  # 启用内容优化的文档长度阈值
+    DOC_LARGE_CONTENT_THRESHOLD: int = int(os.getenv("DOC_LARGE_CONTENT_THRESHOLD", "50000"))  # 超大文档阈值，使用摘要策略
+    DOC_MAX_SECTION_LENGTH: int = int(os.getenv("DOC_MAX_SECTION_LENGTH", "1000"))  # 单个章节最大长度
+    DOC_MAX_OPTIMIZED_LENGTH: int = int(os.getenv("DOC_MAX_OPTIMIZED_LENGTH", "8000"))  # 优化后内容最大长度
+    DOC_SUMMARY_MAX_LENGTH: int = int(os.getenv("DOC_SUMMARY_MAX_LENGTH", "6000"))  # 文档摘要最大长度
+    
     # 检索配置
     RETRIEVAL_TOP_K: int = 10
-    RERANK_TOP_K: int = 5
-    SIMILARITY_THRESHOLD: float = 0.7
+    RERANK_TOP_K: int = 10
+    SIMILARITY_THRESHOLD: float = 0.3
 
     embedding_model_settings: EmbeddingModelSettings = EmbeddingModelSettings()
     rerank_model_settings: RerankModelSettings = RerankModelSettings()

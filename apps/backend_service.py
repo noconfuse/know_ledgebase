@@ -1,6 +1,7 @@
-from fastapi import FastAPI, File, UploadFile, HTTPException, BackgroundTasks, Form
+from fastapi import FastAPI, File, UploadFile, HTTPException, BackgroundTasks, Form, Query
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 from typing import Optional, Dict, Any, List, Union
 import asyncio
@@ -53,11 +54,21 @@ class ParseConfig(BaseModel):
     # save_to_file参数已移除，默认都保存到文件
     max_workers: Optional[int] = Field(default=None, description="MinerU解析器的并发数量（仅对MinerU有效）")
 
+class ParseFileRequest(BaseModel):
+    """解析文件请求"""
+    file_path: str = Field(..., description="文件路径")
+    config: Optional[ParseConfig] = Field(default=None, description="解析配置")
+
+class ParseDirectoryRequest(BaseModel):
+    """解析目录请求"""
+    directory_path: str = Field(..., description="目录路径")
+    config: Optional[ParseConfig] = Field(default=None, description="解析配置")
+
 class VectorStoreConfig(BaseModel):
     """向量数据库配置"""
     # 基础配置
-    chunk_size: Optional[int] = Field(default=512, description="文本块大小")
-    chunk_overlap: Optional[int] = Field(default=50, description="文本块重叠")
+    chunk_size: Optional[int] = Field(default=800, description="文本块大小")
+    chunk_overlap: Optional[int] = Field(default=100, description="文本块重叠")
     
     # 智能元数据提取器配置
     extract_mode: Optional[str] = Field(default="enhanced", description="提取模式：basic（关键词、问答对、title）或enhanced（包含摘要等更多元数据）")
@@ -94,6 +105,11 @@ class TaskStatusResponse(BaseModel):
 class VectorizeDirectoryRequest(BaseModel):
     directory_path: str
     enhancement_config: Optional[Dict] = None
+
+class VectorStoreRequest(BaseModel):
+    """向量化任务请求"""
+    parse_task_id: str = Field(..., description="解析任务ID")
+    config: Optional[VectorStoreConfig] = Field(default=None, description="向量化配置")
 
 # 生命周期管理
 @asynccontextmanager
@@ -141,6 +157,12 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# 挂载静态文件目录
+import os
+static_dir = os.path.join(os.path.dirname(os.path.dirname(__file__)), "static")
+if os.path.exists(static_dir):
+    app.mount("/static", StaticFiles(directory=static_dir), name="static")
 
 # 设置全局异常处理器
 setup_exception_handlers(app)
@@ -265,21 +287,20 @@ async def parse_uploaded_file(
 
 @app.post("/parse/file", response_model=TaskResponse)
 async def parse_file_path(
-    file_path: str,
-    config: Optional[ParseConfig] = None,
+    request: ParseFileRequest
 ):
     """解析指定路径的文件"""
     try:
         # 验证文件路径
-        if not Path(file_path).exists():
+        if not Path(request.file_path).exists():
             raise HTTPException(status_code=404, detail="File not found")
         
         # 转换配置
-        parse_config = config.dict() if config else {}
+        parse_config = request.config.dict() if request.config else {}
         
         # 启动解析任务
         task_id = await document_parser.parse_document(
-            file_path,
+            request.file_path,
             parse_config,
         )
         
@@ -298,22 +319,21 @@ async def parse_file_path(
         raise HTTPException(status_code=500, detail=str(e))
 
 @app.post("/parse/directory", response_model=TaskResponse)
-async def parse_config(
-    directory_path: str,
-    config: Optional[ParseConfig] = None,
+async def parse_directory(
+    request: ParseDirectoryRequest
 ):
     """解析指定目录的文件"""
     # 确保文件目录存在
-    if not Path(directory_path).exists():
+    if not Path(request.directory_path).exists():
         raise HTTPException(status_code=404, detail="Directory not found")
     
     try:
         # 转换配置
-        parse_config = config.dict() if config else {}
+        parse_config = request.config.dict() if request.config else {}
         
         # 启动解析任务
         task_id = await document_parser.parse_directory(
-            directory_path,
+            request.directory_path,
             parse_config,
         )
         
@@ -326,7 +346,7 @@ async def parse_config(
     except HTTPException:
         raise
     except Exception as e:
-        logger.error(f"Error in parse_config: {e}")
+        logger.error(f"Error in parse_directory: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 @app.get("/parse/status/{task_id}", response_model=TaskStatusResponse)
@@ -360,13 +380,12 @@ async def get_all_parse_tasks():
 
 @app.post("/vector-store/build", response_model=TaskResponse)
 async def build_vector_store(
-    parse_task_id: str,
-    config: Optional[VectorStoreConfig] = None
+    request: VectorStoreRequest
 ):
     """从解析任务构建向量数据库"""
     try:
         # 验证解析任务是否存在
-        parse_task = document_parser.get_task(parse_task_id)
+        parse_task = document_parser.get_task(request.parse_task_id)
         if not parse_task:
             raise HTTPException(status_code=404, detail="Parse task not found")
         
@@ -374,12 +393,10 @@ async def build_vector_store(
             raise HTTPException(status_code=400, detail="Parse task not completed")
         
         # 转换配置
-        build_config = config.dict() if config else {}
+        build_config = request.config.dict() if request.config else {}
         
         # 确保配置包含所有必要的参数
         default_config = {
-            "chunk_size": 512,
-            "chunk_overlap": 50,
             "extract_mode": "enhanced",
             "min_chunk_size_for_summary": 500,
             "min_chunk_size_for_qa": 300,
@@ -392,7 +409,7 @@ async def build_vector_store(
         
         # 启动构建任务
         task_id = await vector_store_builder.build_vector_store(
-            parse_task_id,
+            request.parse_task_id,
             final_config
         )
         
@@ -568,8 +585,6 @@ async def get_config():
         "supported_formats": settings.SUPPORTED_FORMATS,
         "ocr_enabled": settings.OCR_ENABLED,
         "use_gpu": settings.USE_GPU,
-        "chunk_size": settings.CHUNK_SIZE,
-        "chunk_overlap": settings.CHUNK_OVERLAP,
         "log_level": settings.LOG_LEVEL,
         "log_dir": settings.LOG_DIR,
         "enable_file_logging": settings.ENABLE_FILE_LOGGING,
@@ -702,8 +717,405 @@ async def test_collect_documents(parse_task_id: str):
             error_code=ErrorCodes.INTERNAL_ERROR,
             status_code=500
         )
+
+# 管理界面API端点
+@app.get("/admin/dashboard")
+async def admin_dashboard(
+    limit: int = 20,
+    offset: int = 0,
+    task_type: Optional[str] = None
+):
+    """管理界面仪表板 - 分页查看解析任务、向量化任务、对话和向量索引"""
+    try:
+        with SessionLocal() as db:
+            # 获取解析任务
+            parse_tasks = task_dao.list_parse_tasks(
+                limit=limit, 
+                offset=offset
+            )
+            parse_tasks_count = task_dao.get_parse_tasks_count()
             
-    
+            # 获取向量化任务
+            vector_tasks = task_dao.list_vector_store_tasks(
+                limit=limit,
+                offset=offset
+            )
+            vector_tasks_count = task_dao.get_vector_tasks_count()
+            
+            # 获取对话会话
+            chat_sessions = chat_dao.get_user_sessions(
+                limit=limit,
+                offset=offset
+            )
+            chat_sessions_count = chat_dao.get_sessions_count()
+            
+            # 获取向量索引
+            vector_indexes = index_dao.get_all_indexes(
+                db,
+                limit=limit,
+                offset=offset
+            )
+            vector_indexes_count = index_dao.get_indexes_count(db)
+            
+            return success_response(
+                data={
+                    "parse_tasks": {
+                        "items": [{
+                            "task_id": task.task_id,
+                            "status": task.status.value if hasattr(task.status, 'value') else str(task.status),
+                            "file_path": task.file_path,
+                            "parent_task_id": task.parent_task_id,
+                            "created_at": task.created_at.isoformat() if task.created_at else None,
+                            "completed_at": task.completed_at.isoformat() if task.completed_at else None,
+                            "progress": task.progress
+                        } for task in parse_tasks],
+                        "total": parse_tasks_count,
+                        "limit": limit,
+                        "offset": offset
+                    },
+                    "vector_tasks": {
+                        "items": [{
+                            "task_id": task.task_id,
+                            "status": task.status.value if hasattr(task.status, 'value') else str(task.status),
+                            "created_at": task.created_at.isoformat() if task.created_at else None,
+                            "completed_at": task.completed_at.isoformat() if task.completed_at else None,
+                            "progress": task.progress
+                        } for task in vector_tasks],
+                        "total": vector_tasks_count,
+                        "limit": limit,
+                        "offset": offset
+                    },
+                    "chat_sessions": {
+                        "items": [{
+                            "session_id": session.session_id,
+                            "user_id": str(session.user_id),
+                            "index_ids": session.index_ids,
+                            "created_at": session.created_at.isoformat() if session.created_at else None,
+                            "last_activity": session.last_activity.isoformat() if session.last_activity else None,
+                            "is_active": session.is_active
+                        } for session in chat_sessions],
+                        "total": chat_sessions_count,
+                        "limit": limit,
+                        "offset": offset
+                    },
+                    "vector_indexes": {
+                        "items": [{
+                            "index_id": index.index_id,
+                            "index_description": index.index_description,
+                            "origin_file_path": index.origin_file_path,
+                            "document_count": index.document_count,
+                            "node_count": index.node_count,
+                            "vector_dimension": index.vector_dimension,
+                            "created_at": index.created_at.isoformat() if index.created_at else None
+                        } for index in vector_indexes],
+                        "total": vector_indexes_count,
+                        "limit": limit,
+                        "offset": offset
+                    }
+                },
+                message="管理界面数据获取成功"
+            )
+    except Exception as e:
+        logger.error(f"Error getting admin dashboard data: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/admin/parse-tasks")
+async def get_parse_tasks_admin(
+    limit: int = 20,
+    offset: int = 0
+):
+    """获取解析任务列表（管理界面）"""
+    try:
+        tasks = task_dao.list_parse_tasks(limit=limit, offset=offset)
+        total = task_dao.get_parse_tasks_count()
+        
+        return success_response(
+            data={
+                "items": [{
+                    "task_id": task.task_id,
+                    "status": task.status.value if hasattr(task.status, 'value') else str(task.status),
+                    "file_path": task.file_path,
+                    "created_at": task.created_at.isoformat() if task.created_at else None,
+                    "started_at": task.started_at.isoformat() if task.started_at else None,
+                    "completed_at": task.completed_at.isoformat() if task.completed_at else None,
+                    "progress": task.progress,
+                    "error": task.error
+                } for task in tasks],
+                "total": total,
+                "limit": limit,
+                "offset": offset
+            },
+            message="解析任务列表获取成功"
+        )
+    except Exception as e:
+        logger.error(f"Error getting parse tasks: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/admin/vector-tasks")
+async def get_vector_tasks_admin(
+    limit: int = 20,
+    offset: int = 0
+):
+    """获取向量化任务列表（管理界面）"""
+    try:
+        with SessionLocal() as db:
+            tasks = task_dao.list_vector_store_tasks(limit=limit, offset=offset)
+            total = task_dao.get_vector_tasks_count()
+            
+            return success_response(
+                data={
+                    "items": [{
+                        "task_id": task.task_id,
+                        "parse_task_id": task.parse_task_id,
+                        "index_id": task.index_id,
+                        "status": task.status.value if hasattr(task.status, 'value') else str(task.status),
+                        "created_at": task.created_at.isoformat() if task.created_at else None,
+                        "started_at": task.started_at.isoformat() if task.started_at else None,
+                        "completed_at": task.completed_at.isoformat() if task.completed_at else None,
+                        "progress": task.progress,
+                        "error": task.error
+                    } for task in tasks],
+                    "total": total,
+                    "limit": limit,
+                    "offset": offset
+                },
+                message="向量化任务列表获取成功"
+            )
+    except Exception as e:
+         logger.error(f"Error getting vector tasks: {e}")
+         raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/admin")
+async def admin_interface():
+    """管理界面"""
+    static_dir = os.path.join(os.path.dirname(os.path.dirname(__file__)), "static")
+    admin_file = os.path.join(static_dir, "admin.html")
+    if os.path.exists(admin_file):
+        return FileResponse(admin_file)
+    else:
+        raise HTTPException(status_code=404, detail="Admin interface not found")
+
+@app.get("/admin/upload-files")
+async def get_upload_files():
+    """获取uploads目录下的文件列表"""
+    try:
+        upload_dir = Path(settings.UPLOAD_DIR)
+        if not upload_dir.exists():
+            return success_response(
+                data={"files": [], "directories": []},
+                message="上传目录不存在"
+            )
+        
+        files = []
+        directories = []
+        
+        def scan_directory(dir_path: Path, relative_path: str = ""):
+            """递归扫描目录"""
+            try:
+                for item in dir_path.iterdir():
+                    if item.is_file():
+                        # 计算相对路径
+                        rel_path = os.path.join(relative_path, item.name) if relative_path else item.name
+                        files.append({
+                            "name": item.name,
+                            "path": str(item),
+                            "relative_path": rel_path,
+                            "size": item.stat().st_size,
+                            "modified_at": datetime.fromtimestamp(item.stat().st_mtime).isoformat()
+                        })
+                    elif item.is_dir():
+                        # 计算相对路径
+                        rel_path = os.path.join(relative_path, item.name) if relative_path else item.name
+                        directories.append({
+                            "name": item.name,
+                            "path": str(item),
+                            "relative_path": rel_path
+                        })
+                        # 递归扫描子目录
+                        scan_directory(item, rel_path)
+            except PermissionError:
+                logger.warning(f"Permission denied accessing {dir_path}")
+            except Exception as e:
+                logger.error(f"Error scanning directory {dir_path}: {e}")
+        
+        scan_directory(upload_dir)
+        
+        return success_response(
+            data={
+                "files": files,
+                "directories": directories,
+                "upload_dir": str(upload_dir)
+            },
+            message="文件列表获取成功"
+        )
+    except Exception as e:
+        logger.error(f"Error getting upload files: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.put("/admin/vector-indexes/{index_id}/description")
+async def update_index_description(index_id: str, description: str = Form(...)):
+    """更新向量索引描述"""
+    try:
+        with SessionLocal() as db:
+            updated_index = index_dao.update_index_description(db, index_id, description)
+            if updated_index:
+                return success_response(
+                    data={
+                        "index_id": index_id,
+                        "description": description
+                    },
+                    message="索引描述更新成功"
+                )
+            else:
+                return error_response(
+                    message=f"索引 {index_id} 不存在",
+                    error_code=ErrorCodes.INDEX_NOT_FOUND,
+                    status_code=404
+                )
+    except Exception as e:
+        logger.error(f"Error updating index description: {e}")
+        return error_response(
+            message=f"更新索引描述时发生错误: {str(e)}",
+            error_code=ErrorCodes.INTERNAL_ERROR,
+            status_code=500
+        )
+
+@app.post("/admin/chat-sessions/{session_id}/reset-index")
+async def reset_session_index(session_id: str, index_ids: List[str] = Form(...)):
+    """重置会话索引绑定"""
+    try:
+        # 验证索引是否存在
+        with SessionLocal() as db:
+            valid_index_ids = []
+            for index_id in index_ids:
+                index_exists = index_dao.get_index_by_id(db, index_id)
+                if index_exists:
+                    valid_index_ids.append(index_id)
+                else:
+                    logger.warning(f"Index {index_id} does not exist")
+            
+            if not valid_index_ids:
+                return error_response(
+                    message="没有有效的索引ID",
+                    error_code=ErrorCodes.VALIDATION_ERROR,
+                    status_code=400
+                )
+        
+        # 更新会话的索引绑定
+        success = chat_dao.update_session_indexes(session_id, valid_index_ids)
+        
+        if success:
+            return success_response(
+                data={
+                    "session_id": session_id,
+                    "index_ids": valid_index_ids
+                },
+                message="会话索引重置成功"
+            )
+        else:
+            return error_response(
+                message=f"会话 {session_id} 不存在或重置失败",
+                error_code=ErrorCodes.SESSION_NOT_FOUND,
+                status_code=404
+            )
+    except Exception as e:
+        logger.error(f"Error resetting session index: {e}")
+        return error_response(
+            message=f"重置会话索引时发生错误: {str(e)}",
+            error_code=ErrorCodes.INTERNAL_ERROR,
+            status_code=500
+        )
+
+@app.get("/admin/chat-sessions")
+async def get_chat_sessions_admin(
+    limit: int = 20,
+    offset: int = 0,
+    user_id: Optional[str] = None
+):
+    """获取对话会话列表（管理界面）"""
+    try:
+        sessions = chat_dao.get_user_sessions(
+            user_id=user_id,
+            limit=limit,
+            offset=offset
+        )
+        total = chat_dao.get_sessions_count(user_id=user_id)
+        
+        # 获取用户信息
+        session_items = []
+        with SessionLocal() as db:
+            for session in sessions:
+                user_info = None
+                if session.user_id:
+                    from dao.user_dao import UserDAO
+                    user = UserDAO.get_user_by_id(db, str(session.user_id))
+                    if user:
+                        user_info = {
+                            "username": user.username,
+                            "email": user.email,
+                            "full_name": user.full_name
+                        }
+                
+                session_items.append({
+                    "session_id": session.session_id,
+                    "user_id": str(session.user_id),
+                    "user_info": user_info,
+                    "index_ids": session.index_ids,
+                    "created_at": session.created_at.isoformat() if session.created_at else None,
+                    "last_activity": session.last_activity.isoformat() if session.last_activity else None,
+                    "is_active": session.is_active,
+                    "session_metadata": session.session_metadata
+                })
+        
+        return success_response(
+            data={
+                "items": session_items,
+                "total": total,
+                "limit": limit,
+                "offset": offset
+            },
+            message="对话会话列表获取成功"
+        )
+    except Exception as e:
+        logger.error(f"Error getting chat sessions: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/admin/vector-indexes")
+async def get_vector_indexes_admin(
+    limit: int = 20,
+    offset: int = 0
+):
+    """获取向量索引列表（管理界面）"""
+    try:
+        with SessionLocal() as db:
+            indexes = index_dao.get_all_indexes(db, limit=limit, offset=offset)
+            total = index_dao.get_indexes_count(db)
+            
+            return success_response(
+                data={
+                    "items": [{
+                        "index_id": index.index_id,
+                        "index_description": index.index_description,
+                        "origin_file_path": index.origin_file_path,
+                        "document_count": index.document_count,
+                        "node_count": index.node_count,
+                        "vector_dimension": index.vector_dimension,
+                        "processing_config": index.processing_config,
+                        "created_at": index.created_at.isoformat() if index.created_at else None
+                    } for index in indexes],
+                    "total": total,
+                    "limit": limit,
+                    "offset": offset
+                },
+                message="向量索引列表获取成功"
+            )
+    except Exception as e:
+        logger.error(f"Error getting vector indexes: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+
+
 
 if __name__ == "__main__":
     import uvicorn

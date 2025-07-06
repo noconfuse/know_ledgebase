@@ -57,7 +57,7 @@ class DocumentParseTask:
             parent_task: 父任务，如果提供则创建子任务
         
         Returns:
-            ParseTask: 创建的解析任务
+            ParseTask: 创建的解析任务或复用的现有任务
         """
         file_path_obj = Path(file_path)
         file_stat = file_path_obj.stat()
@@ -85,6 +85,45 @@ class DocumentParseTask:
         ):
             raise ValueError(f"Docling 解析器不支持文件类型: {file_extension}")
 
+        task_dao = TaskDAO()
+        
+        # 检查数据库中是否已存在相同文件路径的任务
+        existing_task = task_dao.get_parse_task_by_file_path(file_path)
+        
+        if existing_task:
+            logger.info(f"发现现有任务 {existing_task.task_id}，文件路径: {file_path}，复用并重置状态")
+            
+            # 更新任务配置和解析器类型
+            update_data = {
+                'parser_type': parser_type,
+                'config': config or {},
+                'file_size': file_stat.st_size,
+                'mime_type': mimetypes.guess_type(file_path)[0]
+            }
+            task_dao.update_parse_task(existing_task.task_id, update_data)
+            
+            # 重置任务状态
+            task_dao.reset_parse_task_status(existing_task.task_id)
+            
+            # 重新获取更新后的任务
+            updated_task = task_dao.get_parse_task(existing_task.task_id)
+            
+            # 如果有父任务，需要建立父子关系
+            if parent_task and updated_task:
+                # 更新父任务关系和深度
+                task_depth = parent_task.depth + 1
+                parent_update_data = {
+                    'parent_task_id': parent_task.id,
+                    'depth': task_depth
+                }
+                task_dao.update_parse_task(updated_task.task_id, parent_update_data)
+                task_dao.add_subtask_to_parent(parent_task.task_id, updated_task.task_id)
+            
+            return updated_task or existing_task
+        
+        # 如果不存在现有任务，创建新任务
+        logger.info(f"未发现现有任务，为文件路径 {file_path} 创建新任务")
+        
         task_id = str(uuid.uuid4())
 
         # 计算任务深度
@@ -105,7 +144,6 @@ class DocumentParseTask:
         )
         
         # 保存到数据库
-        task_dao = TaskDAO()
         created_task = task_dao.create_parse_task(parse_task)
         
         # 如果有父任务，需要建立父子关系

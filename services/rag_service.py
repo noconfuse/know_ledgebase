@@ -4,8 +4,9 @@ from typing import Dict, List, Optional, Any, AsyncGenerator, Tuple, ClassVar
 from pathlib import Path
 import logging
 import json
-from datetime import datetime
+from datetime import datetime, timedelta
 import re
+import hashlib
 
 from llama_index.core import (
     VectorStoreIndex, 
@@ -45,12 +46,56 @@ from services.model_client_factory import ModelClientFactory
 setup_logging()
 logger = logging.getLogger(__name__)
 
-# Custom Node Postprocessor for Keyword-based Reranking
-class KeywordMetadataReranker(BaseNodePostprocessor):
-    keyword_field: str = "excerpt_keywords"
-    boost_factor: float = 1.2  # Boost score by 20% for keyword match
-    min_score_threshold: float = 0.1 # Only apply boost if original score is above this
+# 查询意图分类常量
+class QueryIntent:
+    """查询意图分类"""
+    LEGAL_LOOKUP = "legal_lookup"  # 查找法条
+    POLICY_INTERPRETATION = "policy_interpretation"  # 政策解读
+    COMPLIANCE_CHECK = "compliance_check"  # 合规检查
+    CASE_ANALYSIS = "case_analysis"  # 案例分析
+    GENERAL_QUESTION = "general_question"  # 一般问题
 
+
+# Custom Node Postprocessor for Keyword-based Reranking
+class UnifiedReranker(BaseNodePostprocessor):
+    """统一重排序器，整合语义、结构和关键词重排序功能"""
+    
+    # 使用类变量定义字段
+    keyword_field: str = "excerpt_keywords"
+    header_path_field: str = "header_path"
+    keyword_boost_factor: float = 1.2
+    header_boost_factor: float = 3.0
+    min_score_threshold: float = 0.1
+    
+    def __init__(
+        self,
+        semantic_reranker=None,
+        keyword_field: str = "excerpt_keywords",
+        header_path_field: str = "header_path",
+        keyword_boost_factor: float = 1.2,
+        header_boost_factor: float = 3.0,
+        min_score_threshold: float = 0.1
+    ):
+        super().__init__()
+        # 使用object.__setattr__来避免Pydantic验证
+        object.__setattr__(self, 'semantic_reranker', semantic_reranker)
+        object.__setattr__(self, 'keyword_field', keyword_field)
+        object.__setattr__(self, 'header_path_field', header_path_field)
+        object.__setattr__(self, 'keyword_boost_factor', keyword_boost_factor)
+        object.__setattr__(self, 'header_boost_factor', header_boost_factor)
+        object.__setattr__(self, 'min_score_threshold', min_score_threshold)
+        
+        # 预编译正则表达式模式
+        object.__setattr__(self, 'chapter_patterns', [
+            r'第([一二三四五六七八九十百千万\d]+)章',  # 第X章
+            r'第([一二三四五六七八九十百千万\d]+)节',  # 第X节
+            r'第([一二三四五六七八九十百千万\d]+)条',  # 第X条
+            r'第([一二三四五六七八九十百千万\d]+)款',  # 第X款
+            r'第([一二三四五六七八九十百千万\d]+)项',  # 第X项
+            r'([一二三四五六七八九十百千万\d]+)、',    # X、
+            r'\(([一二三四五六七八九十百千万\d]+)\)',  # (X)
+        ])
+    
     def _postprocess_nodes(
         self,
         nodes: List[NodeWithScore],
@@ -58,26 +103,62 @@ class KeywordMetadataReranker(BaseNodePostprocessor):
     ) -> List[NodeWithScore]:
         if query_bundle is None or not nodes:
             return nodes
-
-        # Simple query keyword extraction (lowercase, split by space)
-        # Consider more sophisticated keyword extraction for queries if needed
-        query_keywords = set(query_bundle.query_str.lower().split())
-        if not query_keywords:
-            return nodes
-
-        new_nodes = []
+        
+        # 1. 语义重排序（如果提供了语义重排序器）
+        if self.semantic_reranker:
+            nodes = self.semantic_reranker.postprocess_nodes(nodes, query_bundle)
+        
+        # 2. 单次遍历应用所有重排序逻辑
+        self._apply_unified_reranking_single_pass(nodes, query_bundle)
+        
+        # 3. 最终排序
+        nodes.sort(key=lambda x: x.score or 0.0, reverse=True)
+        
+        return nodes
+    
+    def _apply_unified_reranking_single_pass(
+        self, 
+        nodes: List[NodeWithScore], 
+        query_bundle: QueryBundle
+    ) -> None:
+        """单次遍历应用所有重排序逻辑"""
+        query = query_bundle.query_str
+        
+        # 预处理查询信息
+        query_keywords = set(query.lower().split())
+        query_elements = self._extract_structural_elements(query)
+        
+        header_boost_count = 0
+        keyword_boost_count = 0
+        
+        # 单次遍历处理所有节点
         for node_with_score in nodes:
             original_score = node_with_score.score or 0.0
-            boost_applied = False
-
-            if original_score >= self.min_score_threshold:
-                node = node_with_score.node
-                metadata = node.metadata
+            
+            if original_score < self.min_score_threshold:
+                continue
                 
+            metadata = node_with_score.node.metadata
+            final_boost = 1.0
+            
+            # 1. Header path重排序逻辑
+            if query_elements:
+                header_path = metadata.get(self.header_path_field, "")
+                
+                path_similarity = self._calculate_header_path_similarity(query_elements, header_path)
+                
+                if path_similarity > 0:
+                    header_boost = 1.0 + (self.header_boost_factor - 1.0) * path_similarity
+                    final_boost *= header_boost
+                    header_boost_count += 1
+            
+            # 2. 关键词重排序逻辑
+            if query_keywords:
                 excerpt_keywords_str = metadata.get(self.keyword_field, "")
+                
                 if isinstance(excerpt_keywords_str, str) and excerpt_keywords_str:
+                    # 解析关键词字符串
                     actual_keywords_part = excerpt_keywords_str
-                    # Remove potential surrounding single quotes if present
                     if actual_keywords_part.startswith("'") and actual_keywords_part.endswith("'"):
                         actual_keywords_part = actual_keywords_part[1:-1]
                     
@@ -88,38 +169,19 @@ class KeywordMetadataReranker(BaseNodePostprocessor):
                     node_keywords = set(k.strip().lower() for k in actual_keywords_part.split(',') if k.strip())
                     
                     if query_keywords.intersection(node_keywords):
-                        node_with_score.score = original_score * self.boost_factor
-                        boost_applied = True
-                        # logger.debug(f"Boosted node {node.node_id} for query '{query_bundle.query_str}' due to keyword match. Score: {original_score} -> {node_with_score.score}")
+                        final_boost *= self.keyword_boost_factor
+                        keyword_boost_count += 1
             
-            new_nodes.append(node_with_score)
+            # 应用最终的综合提升分数
+            if final_boost > 1.0:
+                node_with_score.score = original_score * final_boost
         
-        # Re-sort nodes by score only if any boost was applied, to maintain stability otherwise
-        # This sort should happen after all nodes are processed.
-        # if any(n.score != orig_score for n, orig_score in zip(new_nodes, [nws.score for nws in nodes])):
-        new_nodes.sort(key=lambda x: x.score or 0.0, reverse=True)
-        
-        return new_nodes
-
-# Custom Node Postprocessor for Header Path-based Reranking
-class HeaderPathReranker(BaseNodePostprocessor):
-    """基于header_path的重排序器，专门处理章节条款查询"""
-    header_path_field: str = "header_path"
-    current_header_field: str = "current_header"
-    boost_factor: float = 2.0  # 更高的提升因子，因为章节匹配很重要
-    min_score_threshold: float = 0.05  # 较低的阈值，允许更多节点被提升
+        # 记录提升统计
+        if header_boost_count > 0:
+            logger.info(f"Applied header path boost to {header_boost_count} nodes")
+        if keyword_boost_count > 0:
+            logger.info(f"Applied keyword boost to {keyword_boost_count} nodes")
     
-    # 预编译正则表达式模式
-    chapter_patterns: ClassVar[List[str]] = [
-        r'第([一二三四五六七八九十百千万\d]+)章',  # 第X章
-        r'第([一二三四五六七八九十百千万\d]+)节',  # 第X节
-        r'第([一二三四五六七八九十百千万\d]+)条',  # 第X条
-        r'第([一二三四五六七八九十百千万\d]+)款',  # 第X款
-        r'第([一二三四五六七八九十百千万\d]+)项',  # 第X项
-        r'([一二三四五六七八九十百千万\d]+)、',    # X、
-        r'\(([一二三四五六七八九十百千万\d]+)\)',  # (X)
-    ]
-        
     def _extract_structural_elements(self, text: str) -> List[str]:
         """从文本中提取结构化元素（章、节、条等）"""
         elements = []
@@ -137,18 +199,15 @@ class HeaderPathReranker(BaseNodePostprocessor):
             '十六': '16', '十七': '17', '十八': '18', '十九': '19', '二十': '20'
         }
         
-        # 处理更复杂的中文数字
         if num_str in chinese_to_arabic:
             return chinese_to_arabic[num_str]
         
-        # 处理"二十一"到"九十九"的情况
         if len(num_str) == 3 and num_str[1] == '十':
             tens = chinese_to_arabic.get(num_str[0], num_str[0])
             ones = chinese_to_arabic.get(num_str[2], num_str[2])
             if tens.isdigit() and ones.isdigit():
                 return str(int(tens) * 10 + int(ones))
         
-        # 如果已经是阿拉伯数字，直接返回
         if num_str.isdigit():
             return num_str
             
@@ -159,88 +218,25 @@ class HeaderPathReranker(BaseNodePostprocessor):
         if not query_elements or not header_path:
             return 0.0
         
-        # 提取header_path中的结构化元素
         path_elements = self._extract_structural_elements(header_path)
-        
         if not path_elements:
             return 0.0
         
-        # 标准化所有元素
         normalized_query = [self._normalize_number(elem) for elem in query_elements]
         normalized_path = [self._normalize_number(elem) for elem in path_elements]
         
-        # 计算匹配度
         matches = 0
         for q_elem in normalized_query:
             if q_elem in normalized_path:
                 matches += 1
         
-        # 返回匹配比例，考虑查询元素的重要性
         similarity = matches / len(normalized_query)
-        
-        # 如果匹配了多个元素，给予额外奖励
         if matches > 1:
             similarity *= 1.5
             
         return min(similarity, 1.0)
-    
-    def _postprocess_nodes(
-        self,
-        nodes: List[NodeWithScore],
-        query_bundle: Optional[QueryBundle] = None,
-    ) -> List[NodeWithScore]:
-        if query_bundle is None or not nodes:
-            return nodes
-        
-        query = query_bundle.query_str
-        
-        # 提取查询中的结构化元素
-        query_elements = self._extract_structural_elements(query)
-        
-        if not query_elements:
-            # 如果查询中没有结构化元素，不进行重排序
-            return nodes
-        
-        logger.debug(f"Found structural elements in query: {query_elements}")
-        
-        new_nodes = []
-        boost_applied_count = 0
-        
-        for node_with_score in nodes:
-            original_score = node_with_score.score or 0.0
-            
-            if original_score >= self.min_score_threshold:
-                node = node_with_score.node
-                metadata = node.metadata
-                
-                # 获取header_path
-                header_path = metadata.get(self.header_path_field, "")
-                current_header = metadata.get(self.current_header_field, "")
-                
-                # 计算与header_path的相似度
-                path_similarity = self._calculate_header_path_similarity(query_elements, header_path)
-                header_similarity = self._calculate_header_path_similarity(query_elements, current_header)
-                
-                # 取最高相似度
-                max_similarity = max(path_similarity, header_similarity)
-                
-                if max_similarity > 0:
-                    # 根据相似度调整boost因子
-                    dynamic_boost = 1.0 + (self.boost_factor - 1.0) * max_similarity
-                    node_with_score.score = original_score * dynamic_boost
-                    boost_applied_count += 1
-                    
-                    logger.debug(f"Boosted node {node.node_id[:8]}... for structural query. "
-                               f"Similarity: {max_similarity:.2f}, Score: {original_score:.3f} -> {node_with_score.score:.3f}")
-            
-            new_nodes.append(node_with_score)
-        
-        if boost_applied_count > 0:
-            logger.info(f"Applied header path boost to {boost_applied_count} nodes")
-            # 重新排序
-            new_nodes.sort(key=lambda x: x.score or 0.0, reverse=True)
-        
-        return new_nodes
+
+
 
 class ConversationSession:
     """对话会话"""
@@ -289,6 +285,8 @@ class ConversationSession:
         except Exception as e:
             logger.error(f"Failed to load chat history to memory: {e}")
             return False
+    
+
 
 class RAGService:
     """RAG检索增强服务"""
@@ -315,13 +313,22 @@ class RAGService:
             self._setup_models()
             self.loaded_indexes: Dict[str, VectorStoreIndex] = {}
             self.sessions: Dict[str, ConversationSession] = {}
-            self._retriever_tool_cache: Dict[str, RetrieverTool] = {} # Modified cache type hint
+            self._retriever_cache: Dict[str, Any] = {}  # 统一的retriever缓存
+            
+            # 自动合并检索配置
+            self.auto_merge_config = {
+                'enable_by_default': True,  # 默认启用自动合并
+                'max_expand_distance': 3,  # 最大扩散距离
+                'min_merge_score': 0.3,  # 最小合并分数阈值
+                'overlap_threshold': 0.7,  # 文本重叠阈值
+                'max_merged_length': 8000  # 合并后最大长度
+            }
             
             # 自动加载所有vector_store表的索引
             self._auto_load_vector_store_indexes()
             
             self._initialized = True
-            logger.info("RAGService initialized")
+            logger.info("RAGService initialized with enhanced features")
     
     def _setup_models(self):
         """设置模型"""
@@ -332,12 +339,24 @@ class RAGService:
             # 初始化嵌入模型
             self.embed_model = ModelClientFactory.create_embedding_client(settings.embedding_model_settings)
             
-           
-            self.keyword_reranker = KeywordMetadataReranker() # Initialize custom reranker
-            self.header_path_reranker = HeaderPathReranker() # Initialize header path reranker
-            
             # 初始化LLM
             self.llm = ModelClientFactory.create_llm_client(settings.llm_model_settings)
+            
+            # 创建语义重排序器
+            semantic_reranker = ModelClientFactory.create_rerank_client(
+                model_config=settings.rerank_model_settings,
+                top_n=settings.RERANK_TOP_K
+            )
+            
+            # 初始化统一重排序器
+            self.unified_reranker = UnifiedReranker(
+                semantic_reranker=semantic_reranker,
+                keyword_field="excerpt_keywords",
+                header_path_field="header_path",
+                keyword_boost_factor=1.2,
+                header_boost_factor=3.0,
+                min_score_threshold=0.1
+            )
             
             # 设置全局配置
             Settings.embed_model = self.embed_model
@@ -348,6 +367,8 @@ class RAGService:
         except Exception as e:
             logger.error(f"Failed to initialize RAG models: {e}")
             raise
+    
+    
    
     def _auto_load_vector_store_indexes(self):
         """自动加载所有vector_store表的索引"""
@@ -502,224 +523,446 @@ class RAGService:
             logger.error(f"Failed to load index {index_id}: {e}")
             return False
     
-    async def hybrid_retrieve(
-        self, 
-        index_id: str, 
-        query: str, 
-        top_k: int = None,
-        similarity_threshold: float = None
-    ) -> List[NodeWithScore]:
-        """混合检索（单索引）"""
-        try:
-            # 确保索引已加载
-            if not await self.load_index(index_id):
-                raise ValueError(f"Failed to load index: {index_id}")
+    def _get_or_create_retriever(self, index_ids: List[str], top_k: int = None, similarity_threshold: float = None):
+        """获取或创建retriever（支持缓存复用）"""
+        
+        top_k = top_k or settings.RETRIEVAL_TOP_K
+        cache_key = f"{'_'.join(sorted(index_ids))}_{top_k}"
+        
+        if cache_key in self._retriever_cache:
+            logger.debug(f"Using cached retriever for key: {cache_key}")
+            return self._retriever_cache[cache_key]
+        
+        # 创建新的retriever
+        retriever = self._create_unified_retriever(index_ids, top_k, similarity_threshold)
+        self._retriever_cache[cache_key] = retriever
+        logger.info(f"Created and cached new retriever for key: {cache_key}")
+        return retriever
+    
+    def _create_unified_retriever(self, index_ids: List[str], top_k: int, similarity_threshold: float = None):
+        """创建统一的检索器（支持单索引和多索引）"""
+        
+        all_retrievers = []
+        
+        # 为每个索引创建检索器
+        for index_id in index_ids:
+            if index_id not in self.loaded_indexes:
+                logger.warning(f"Index {index_id} not loaded, skipping")
+                continue
+                
             index = self.loaded_indexes[index_id]
-            top_k = top_k or settings.RETRIEVAL_TOP_K
-            similarity_threshold = similarity_threshold or settings.SIMILARITY_THRESHOLD
             
             # 创建向量检索器
             vector_retriever = VectorIndexRetriever(
                 index=index,
                 similarity_top_k=top_k
             )
+
+            all_retrievers.append(vector_retriever)
             
-            # 检查是否有数据可用于BM25检索
+            # 尝试创建BM25检索器
             try:
-                # 对于PostgreSQL索引，需要从storage_context获取docstore
-                docstore = None
-                if settings.VECTOR_STORE_TYPE == "postgres":
-                    # PostgreSQL索引的docstore在storage_context中
-                    if index._storage_context and index._storage_context.docstore:
-                        docstore = index._storage_context.docstore
-                    else:
-                        # 尝试重新获取storage_context
-                        postgres_builder = create_postgres_vector_store_builder(
-                            host=settings.POSTGRES_HOST,
-                            port=settings.POSTGRES_PORT,
-                            database=settings.POSTGRES_DATABASE,
-                            user=settings.POSTGRES_USER,
-                            password=settings.POSTGRES_PASSWORD,
-                            table_name=f"{settings.POSTGRES_TABLE_NAME}_{index_id.replace('-', '_')}",
-                            embed_dim=settings.VECTOR_DIM
-                        )
-                        vector_store = postgres_builder.create_vector_store()
-                        storage_context = postgres_builder._create_storage_context(vector_store)
-                        docstore = storage_context.docstore
-                else:
-                    # FAISS索引使用index.docstore
-                    docstore = index.docstore
-                
-                if not docstore or not docstore.docs:
-                    raise ValueError("BM25 retrieval failed: No documents available in the docstore.")
-                
-                # 创建BM25检索器
-                bm25_retriever = BM25Retriever.from_defaults(
-                    docstore=docstore,
-                    similarity_top_k=top_k
-                )
-                
-                logger.info(f"Created BM25 retriever with {len(docstore.docs)} documents")
-                
-                # 创建融合检索器
-                fusion_retriever = QueryFusionRetriever(
-                    retrievers=[vector_retriever, bm25_retriever],
-                    similarity_top_k=top_k,
-                    num_queries=3,  # 生成3个查询变体
-                    mode="reciprocal_rerank",
-                )
-                
-                # 执行检索
-                query_bundle = QueryBundle(query_str=query)
-                retrieved_nodes = await fusion_retriever.aretrieve(query_bundle)
+                docstore = self._get_docstore_from_index(index, index_id)
+                if docstore and docstore.docs:
+                    bm25_retriever = BM25Retriever.from_defaults(
+                        docstore=docstore,
+                        similarity_top_k=top_k
+                    )
+                    all_retrievers.append(bm25_retriever)
+                    logger.debug(f"Created BM25 retriever for index {index_id}")
             except Exception as e:
-                logger.warning(f"BM25 retrieval failed: {e}, falling back to vector retrieval only")
-                # 回退到仅使用向量检索
-                query_bundle = QueryBundle(query_str=query)
-                retrieved_nodes = await vector_retriever.aretrieve(query_bundle)
+                logger.warning(f"Failed to create BM25 retriever for {index_id}: {e}")
+        
+        if not all_retrievers:
+            raise ValueError("No valid retrievers created")
+        
+        # 根据检索器数量决定使用策略
+        if len(all_retrievers) == 1:
+            base_retriever = all_retrievers[0]
+        else:
+            # 设置检索器权重：向量检索器0.6，BM25检索器0.4
+            retriever_weights = [0.6, 0.4] if len(all_retrievers) == 2 else None
             
-            # 应用多层重排序
-            # 1. 首先应用语义重排序
-            reranker = ModelClientFactory.create_rerank_client(model_config=settings.rerank_model_settings, top_n=top_k)
-            reranked_nodes = reranker.postprocess_nodes(
-                retrieved_nodes, query_bundle
-            )
-            
-            # 2. 应用基于header_path的重排序（针对章节条款查询）
-            header_reranked_nodes = self.header_path_reranker.postprocess_nodes(
-                reranked_nodes, query_bundle
-            )
-            
-            # 3. 应用关键词元数据重排序
-            keyword_reranked_nodes = self.keyword_reranker.postprocess_nodes(
-                header_reranked_nodes, query_bundle
-            )
-            logger.info(f'keyword_reranked_nodes:{len(keyword_reranked_nodes)}')
-            # 过滤低相似度结果
-            filtered_nodes = [
-                node for node in keyword_reranked_nodes 
-                if node.score >= similarity_threshold
-            ]
-            
-            logger.info(f"Retrieved {len(filtered_nodes)} nodes for query: {query[:50]}...")
-            return filtered_nodes
-            
-        except Exception as e:
-            import traceback
-            traceback.print_exc()
-            logger.error(f"Error in hybrid retrieve: {e}")
-            raise
-    
-    async def multi_index_retrieve(
-        self, 
-        index_ids: List[str], 
-        query: str, 
-        top_k: int = None,
-        similarity_threshold: float = None
-    ) -> List[NodeWithScore]:
-        """多索引混合检索"""
-        try:
-            top_k = top_k or settings.RETRIEVAL_TOP_K
-            similarity_threshold = similarity_threshold or settings.SIMILARITY_THRESHOLD
-            
-            all_retrievers = []
-            
-            # 为每个索引创建检索器
-            for index_id in index_ids:
-                if not await self.load_index(index_id):
-                    logger.warning(f"Failed to load index: {index_id}, skipping")
-                    continue
-                    
-                index = self.loaded_indexes[index_id]
-                
-                # 创建向量检索器
-                vector_retriever = VectorIndexRetriever(
-                    index=index,
-                    similarity_top_k=top_k
-                )
-                all_retrievers.append(vector_retriever)
-                
-                # 尝试添加BM25检索器
-                try:
-                    # 对于PostgreSQL索引，需要从storage_context获取docstore
-                    docstore = None
-                    if settings.VECTOR_STORE_TYPE == "postgres":
-                        # PostgreSQL索引的docstore在storage_context中
-                        if index._storage_context and index._storage_context.docstore:
-                            docstore = index._storage_context.docstore
-                        else:
-                            # 尝试重新获取storage_context
-                            postgres_builder = create_postgres_vector_store_builder(
-                                host=settings.POSTGRES_HOST,
-                                port=settings.POSTGRES_PORT,
-                                database=settings.POSTGRES_DATABASE,
-                                user=settings.POSTGRES_USER,
-                                password=settings.POSTGRES_PASSWORD,
-                                table_name=f"{settings.POSTGRES_TABLE_NAME}_{index_id.replace('-', '_')}",
-                                embed_dim=settings.VECTOR_DIM
-                            )
-                            vector_store = postgres_builder.create_vector_store()
-                            storage_context = postgres_builder._create_storage_context(vector_store)
-                            docstore = storage_context.docstore
-                    else:
-                        # FAISS索引使用index.docstore
-                        docstore = index.docstore
-                    
-                    if docstore and docstore.docs:
-                        bm25_retriever = BM25Retriever.from_defaults(
-                            docstore=docstore,
-                            similarity_top_k=top_k
-                        )
-                        all_retrievers.append(bm25_retriever)
-                        logger.info(f"Created BM25 retriever for index {index_id} with {len(docstore.docs)} docs")
-                    else:
-                        logger.warning(f"BM25 retrieval failed: No documents available in index {index_id}")
-                except Exception as e:
-                    logger.warning(f"Failed to create BM25 retriever for {index_id}: {e}")
-            
-            if not all_retrievers:
-                raise ValueError("No valid retrievers created")
-            
-            # 创建多检索器融合
-            fusion_retriever = QueryFusionRetriever(
+            # 使用融合检索器
+            base_retriever = QueryFusionRetriever(
                 retrievers=all_retrievers,
+                retriever_weights=retriever_weights,
                 similarity_top_k=top_k,
                 num_queries=3,
-                mode="reciprocal_rerank"
+                mode="reciprocal_rerank",
+                use_async=True
             )
+        
+      
+        return base_retriever
+    
+    def _get_docstore_from_index(self, index: VectorStoreIndex, index_id: str):
+        """从索引获取docstore"""
+        if settings.VECTOR_STORE_TYPE == "postgres":
+            if index._storage_context and index._storage_context.docstore:
+                return index._storage_context.docstore
+            else:
+                # 重新获取storage_context
+                postgres_builder = create_postgres_vector_store_builder(
+                    host=settings.POSTGRES_HOST,
+                    port=settings.POSTGRES_PORT,
+                    database=settings.POSTGRES_DATABASE,
+                    user=settings.POSTGRES_USER,
+                    password=settings.POSTGRES_PASSWORD,
+                    table_name=f"{settings.POSTGRES_TABLE_NAME}_{index_id.replace('-', '_')}",
+                    embed_dim=settings.VECTOR_DIM
+                )
+                vector_store = postgres_builder.create_vector_store()
+                storage_context = postgres_builder._create_storage_context(vector_store)
+                return storage_context.docstore
+        else:
+            return index.docstore
+    
+    async def unified_retrieve(
+        self, 
+        index_ids: List[str],
+        query: str, 
+        top_k: int = None,
+        similarity_threshold: float = None,
+        use_cached_retriever: bool = True,
+        enable_auto_merge: bool = None
+    ) -> List[NodeWithScore]:
+        """统一检索接口（支持单索引和多索引）"""
+        try:
+            # 确保所有索引已加载
+            valid_index_ids = []
+            for index_id in index_ids:
+                if await self.load_index(index_id):
+                    valid_index_ids.append(index_id)
+                else:
+                    logger.warning(f"Failed to load index: {index_id}")
+            
+            if not valid_index_ids:
+                raise ValueError("No valid indexes loaded")
+            
+            top_k = top_k or settings.RETRIEVAL_TOP_K
+            
+            # 获取或创建retriever
+            if use_cached_retriever:
+                retriever = self._get_or_create_retriever(valid_index_ids, top_k, similarity_threshold)
+            else:
+                retriever = self._create_unified_retriever(valid_index_ids, top_k, similarity_threshold)
             
             # 执行检索
             query_bundle = QueryBundle(query_str=query)
-            retrieved_nodes = await fusion_retriever.aretrieve(query_bundle)
-            # 应用多层重排序
-            # 1. 首先应用语义重排序
-            reranker = ModelClientFactory.create_rerank_client(model_config=settings.rerank_model_settings, top_n=top_k)
-            reranked_nodes = reranker.postprocess_nodes(
-                retrieved_nodes, query_bundle
-            )
+            retrieved_nodes = await retriever.aretrieve(query_bundle)
             
-            # 2. 应用基于header_path的重排序（针对章节条款查询）
-            header_reranked_nodes = self.header_path_reranker.postprocess_nodes(
-                reranked_nodes, query_bundle
-            )
+            # 1. 统一重排序（整合语义、结构和关键词重排序）
+            reranked_nodes = self.unified_reranker.postprocess_nodes(retrieved_nodes, query_bundle)
             
-            # 3. 应用关键词元数据重排序
-            keyword_reranked_nodes = self.keyword_reranker.postprocess_nodes(
-                header_reranked_nodes, query_bundle
-            )
+            # 2. 自动合并检索（在重排序之后执行，基于重排序后的分数进行合并）
+            if enable_auto_merge is None:
+                enable_auto_merge = self.auto_merge_config.get('enable_by_default', True)
             
-            # 过滤低相似度结果
-            filtered_nodes = [
-                node for node in keyword_reranked_nodes 
-                if node.score >= similarity_threshold
-            ]
+            if enable_auto_merge:
+                final_nodes = await self._auto_merge_retrieve(
+                    reranked_nodes, valid_index_ids, query_bundle
+                )
+            else:
+                final_nodes = reranked_nodes
             
-            logger.info(f"Multi-index retrieved {len(filtered_nodes)} nodes from {len(index_ids)} indexes")
-            return filtered_nodes
+            # 3. 最终截取top_k个结果
+            final_nodes = final_nodes[:top_k]
+            
+            logger.info(f"Retrieved {len(final_nodes)} nodes for query: {query[:50]}...")
+            return final_nodes
             
         except Exception as e:
-            logger.error(f"Error in multi-index retrieve: {e}")
+            logger.error(f"Error in unified retrieve: {e}")
             raise
+    
+    # 保持向后兼容的方法
+    async def hybrid_retrieve(self, index_id: str = None, enable_auto_merge: bool = None, **kwargs) -> List[NodeWithScore]:
+        """混合检索（向后兼容）"""
+        if index_id:
+            return await self.unified_retrieve([index_id], enable_auto_merge=enable_auto_merge, **kwargs)
+        else:
+            raise ValueError("index_id is required for hybrid_retrieve")
+    
+    async def multi_index_retrieve(self, index_ids: List[str], enable_auto_merge: bool = None, **kwargs) -> List[NodeWithScore]:
+        """多索引检索（向后兼容）"""
+        return await self.unified_retrieve(index_ids, enable_auto_merge=enable_auto_merge, **kwargs)
+    
+    async def _auto_merge_retrieve(
+        self, 
+        nodes: List[NodeWithScore], 
+        index_ids: List[str], 
+        query_bundle: QueryBundle
+    ) -> List[NodeWithScore]:
+        """自动合并检索：以高分节点为中心向相邻节点扩散合并"""
+        try:
+            if not nodes:
+                return nodes
+            
+            # 按分数排序，优先处理高分节点
+            sorted_nodes = sorted(nodes, key=lambda x: x.score or 0, reverse=True)
+            merged_nodes = []
+            processed_node_ids = set()
+            
+            for anchor_node in sorted_nodes:
+                if anchor_node.node.node_id in processed_node_ids:
+                    continue
+                
+                # 以当前节点为锚点，向相邻节点扩散
+                expanded_nodes = await self._expand_to_adjacent_nodes(
+                    anchor_node, index_ids, processed_node_ids
+                )
+                
+                if len(expanded_nodes) > 1:
+                    # 合并扩散到的节点
+                    merged_node = self._merge_expanded_nodes(expanded_nodes)
+                    if merged_node:
+                        merged_nodes.append(merged_node)
+                else:
+                    # 单个节点直接添加
+                    merged_nodes.append(anchor_node)
+                
+                # 标记已处理的节点
+                for node in expanded_nodes:
+                    processed_node_ids.add(node.node.node_id)
+            
+            logger.info(f"Auto merge: processed {len(nodes)} nodes, merged to {len(merged_nodes)} nodes")
+            return merged_nodes
+            
+        except Exception as e:
+            logger.error(f"Error in auto merge retrieve: {e}")
+            return nodes
+    
+    async def _expand_to_adjacent_nodes(
+        self, 
+        anchor_node: NodeWithScore, 
+        index_ids: List[str],
+        processed_node_ids: set
+    ) -> List[NodeWithScore]:
+        """以锚点节点为中心向相邻节点扩散"""
+        try:
+            max_distance = self.auto_merge_config.get('max_expand_distance', 3)
+            min_score = self.auto_merge_config.get('min_merge_score', 0.3)
+            
+            # 获取锚点节点的信息
+            anchor_file = anchor_node.node.metadata.get('original_file_path', '')
+            anchor_node_id = anchor_node.node.node_id
+            anchor_header_path = anchor_node.node.metadata.get('header_path', '')
+            
+            if not anchor_file:
+                return [anchor_node]
+            
+            # 获取同级节点列表
+            sibling_nodes = await self._get_sibling_nodes(anchor_file, anchor_header_path, index_ids)
+            if not sibling_nodes:
+                return [anchor_node]
+            
+            # 找到锚点在列表中的位置
+            anchor_idx = -1
+            for i, node in enumerate(sibling_nodes):
+                if node.node.node_id == anchor_node_id:
+                    anchor_idx = i
+                    break
+            
+            if anchor_idx == -1:
+                return [anchor_node]
+            
+            # 构建扩散列表，锚点在中间
+            expanded_nodes = [anchor_node]
+            
+            # 向前找，找到符合条件的就插入到列表前面，断开就停止
+            for i in range(anchor_idx - 1, max(anchor_idx - max_distance - 1, -1), -1):
+                candidate = sibling_nodes[i]
+                if (candidate.node.node_id not in processed_node_ids and
+                    (candidate.score or 0) >= min_score and
+                    self._should_merge_with_anchor(anchor_node, candidate)):
+                    expanded_nodes.insert(0, candidate)  # 插入到前面
+                else:
+                    break  # 断开就停止
+            
+            # 向后找，找到符合条件的就插入到列表后面，断开就停止
+            for i in range(anchor_idx + 1, min(anchor_idx + max_distance + 1, len(sibling_nodes))):
+                candidate = sibling_nodes[i]
+                if (candidate.node.node_id not in processed_node_ids and
+                    (candidate.score or 0) >= min_score and
+                    self._should_merge_with_anchor(anchor_node, candidate)):
+                    expanded_nodes.append(candidate)  # 插入到后面
+                else:
+                    break  # 断开就停止
+            
+            return expanded_nodes
+            
+        except Exception as e:
+            logger.error(f"Error expanding to adjacent nodes: {e}")
+            return [anchor_node]
+    
+    async def _get_sibling_nodes(
+        self, 
+        file_path: str, 
+        anchor_header_path: str,
+        index_ids: List[str]
+    ) -> List[NodeWithScore]:
+        """获取指定文件中同级的所有节点，保持文档顺序"""
+        sibling_nodes = []
+        
+        try:
+            for index_id in index_ids:
+                if index_id not in self.loaded_indexes:
+                    continue
+                
+                index = self.loaded_indexes[index_id]
+                docstore = self._get_docstore_from_index(index, index_id)
+                
+                if not docstore or not docstore.docs:
+                    continue
+                
+                # 查找同一文件且同级的所有节点，保持docstore的自然顺序
+                for doc_id, doc in docstore.docs.items():
+                    if (doc.metadata.get('original_file_path', '') == file_path and 
+                        doc.metadata.get('header_path', '') == anchor_header_path):
+                        sibling_nodes.append(NodeWithScore(node=doc, score=0.5))
+            
+            return sibling_nodes
+            
+        except Exception as e:
+            logger.error(f"Error getting sibling nodes: {e}")
+            return []
+    
+
+    
+    def _should_merge_with_anchor(self, anchor_node: NodeWithScore, candidate_node: NodeWithScore) -> bool:
+        """判断候选节点是否应该与锚点节点合并"""
+        try:
+            # 检查文本重叠度
+            anchor_text = anchor_node.node.get_content()
+            candidate_text = candidate_node.node.get_content()
+            
+            overlap = self._calculate_text_overlap(anchor_text, candidate_text)
+            overlap_threshold = self.auto_merge_config.get('overlap_threshold', 0.7)
+            
+            # 重叠度过高说明内容重复，不合并
+            if overlap > overlap_threshold:
+                return False
+            
+            # 检查合并后长度
+            max_length = self.auto_merge_config.get('max_merged_length', 8000)
+            if len(anchor_text) + len(candidate_text) > max_length:
+                return False
+            
+            return True
+            
+        except Exception as e:
+            logger.error(f"Error checking merge compatibility: {e}")
+            return False
+    
+    def _merge_expanded_nodes(self, expanded_nodes: List[NodeWithScore]) -> Optional[NodeWithScore]:
+        """合并扩散到的节点"""
+        try:
+            if not expanded_nodes:
+                return None
+            
+            if len(expanded_nodes) == 1:
+                return expanded_nodes[0]
+            
+            # 保持节点的自然顺序，不进行排序
+            sorted_nodes = expanded_nodes
+            base_node = max(expanded_nodes, key=lambda x: x.score or 0)  # 取最高分节点作为基础
+            
+            # 合并文本
+            merged_texts = []
+            for node in sorted_nodes:
+                text = node.node.get_content().strip()
+                if text:
+                    merged_texts.append(text)
+            
+            merged_text = "\n\n".join(merged_texts)
+            
+            # 创建合并节点
+            from llama_index.core.schema import TextNode
+            merged_node = TextNode(
+                text=merged_text,
+                metadata=base_node.node.metadata.copy(),
+                node_id=f"merged_{base_node.node.node_id}"
+            )
+            
+            # 计算平均分数
+            avg_score = sum(node.score or 0 for node in expanded_nodes) / len(expanded_nodes)
+            
+            return NodeWithScore(node=merged_node, score=avg_score)
+            
+        except Exception as e:
+            logger.error(f"Error merging expanded nodes: {e}")
+            return expanded_nodes[0] if expanded_nodes else None
+    
+    def _calculate_text_overlap(self, text1: str, text2: str) -> float:
+        """计算两个文本的重叠比例"""
+        if not text1 or not text2:
+            return 0.0
+        
+        # 简单的字符级重叠计算
+        text1_clean = re.sub(r'\s+', ' ', text1.lower().strip())
+        text2_clean = re.sub(r'\s+', ' ', text2.lower().strip())
+        
+        # 如果一个文本完全包含另一个文本
+        if text1_clean in text2_clean or text2_clean in text1_clean:
+            return 1.0
+        
+        # 计算词级重叠
+        words1 = set(text1_clean.split())
+        words2 = set(text2_clean.split())
+        
+        if not words1 or not words2:
+            return 0.0
+        
+        intersection = len(words1.intersection(words2))
+        union = len(words1.union(words2))
+        
+        return intersection / union if union > 0 else 0.0
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+    def configure_auto_merge(
+        self,
+        enable_by_default: bool = None,
+        max_expand_distance: int = None,
+        min_merge_score: float = None,
+        overlap_threshold: float = None,
+        max_merged_length: int = None
+    ):
+        """配置自动合并检索参数
+        
+        Args:
+            enable_by_default: 默认是否启用自动合并
+            max_expand_distance: 最大扩散距离
+            min_merge_score: 最小合并分数阈值
+            overlap_threshold: 文本重叠阈值
+            max_merged_length: 合并后最大长度
+        """
+        if enable_by_default is not None:
+            self.auto_merge_config['enable_by_default'] = enable_by_default
+        if max_expand_distance is not None:
+            self.auto_merge_config['max_expand_distance'] = max_expand_distance
+        if min_merge_score is not None:
+            self.auto_merge_config['min_merge_score'] = min_merge_score
+        if overlap_threshold is not None:
+            self.auto_merge_config['overlap_threshold'] = overlap_threshold
+        if max_merged_length is not None:
+            self.auto_merge_config['max_merged_length'] = max_merged_length
+        
+        logger.info(f"Auto merge configuration updated: {self.auto_merge_config}")
+    
+    def get_auto_merge_config(self) -> Dict[str, Any]:
+        """获取当前自动合并检索配置"""
+        return self.auto_merge_config.copy()
+
     
     async def test_retrieval_recall(
         self, 
@@ -850,79 +1093,19 @@ class RAGService:
             if not loaded_indices:
                 raise ValueError("No valid indices could be loaded for the session.")
 
-            reranker = ModelClientFactory.create_rerank_client(
-                model_config=settings.rerank_model_settings,
-                top_n=settings.RETRIEVAL_TOP_K
-            )
-            node_postprocessors = [reranker, self.header_path_reranker, self.keyword_reranker]
+            # 使用统一检索器方法
+            logger.info("Using unified retriever for chat engine")
 
-            # 导入必要的模块
-            from llama_index.retrievers.bm25 import BM25Retriever
-            from llama_index.core.retrievers import QueryFusionRetriever
-            from services.filtered_retriever import FilteredRetriever
-            
-            # 统一处理单索引和多索引情况，使用混合检索
-            all_retrievers = []
-            
-            # 为每个索引创建检索器
-            for index_obj in loaded_indices:
-                # 获取索引ID
-                current_index_id = next((id for id, idx in self.loaded_indexes.items() if idx == index_obj), None)
-                
-                # 创建向量检索器（带重排序器）
-                vector_retriever = VectorIndexRetriever(
-                    index=index_obj,
-                    similarity_top_k=settings.RETRIEVAL_TOP_K,  # 分配一半给向量检索
-                )
-                all_retrievers.append(vector_retriever)
-                logger.info(f"Created vector retriever for index {current_index_id or 'unknown'}")
-                
-                # 尝试创建BM25检索器
-                try:
-                    if index_obj._storage_context and index_obj._storage_context.docstore:
-                        bm25_retriever = BM25Retriever.from_defaults(
-                            docstore=index_obj._storage_context.docstore,
-                            similarity_top_k=settings.RETRIEVAL_TOP_K  
-                        )
-                        all_retrievers.append(bm25_retriever)
-                        logger.info(f"Created BM25 retriever for index {current_index_id or 'unknown'} with {len(index_obj.docstore.docs)} docs")
-                    else:
-                        logger.warning(f"BM25 retrieval failed: No documents available in index {current_index_id or 'unknown'}")
-                except Exception as e:
-                    logger.warning(f"Failed to create BM25 retriever for index {current_index_id or 'unknown'}: {e}")
-            
-            if not all_retrievers:
-                raise ValueError("No valid retrievers created")
-            
-            # 创建检索器 - 根据检索器数量决定使用单检索器还是融合检索器
-            if len(all_retrievers) == 1:
-                # 只有一个检索器，直接使用
-                base_retriever = all_retrievers[0]
-                logger.info("Using single retriever with node postprocessors")
-            else:
-                # 多个检索器，使用融合检索器
-                try:
-                    # QueryFusionRetriever不支持node_postprocessors参数
-                    base_retriever = QueryFusionRetriever(
-                        retrievers=all_retrievers,
-                        similarity_top_k=settings.RETRIEVAL_TOP_K,
-                        num_queries=4,  # 生成4个查询变体
-                        mode="reciprocal_rerank",
-                        use_async=True,
-                        verbose=True
-                    )
-                    logger.info(f"Created QueryFusionRetriever with {len(all_retrievers)} retrievers")
-                except Exception as e:
-                    # 如果融合检索器创建失败，使用第一个检索器作为备选
-                    logger.warning(f"Failed to create QueryFusionRetriever: {e}, falling back to first retriever")
-                    base_retriever = all_retrievers[0]
-            
-            # 使用过滤检索器包装基础检索器，确保相似度过滤被应用
-            retriever = FilteredRetriever(
-                base_retriever=base_retriever,
-                similarity_threshold=settings.SIMILARITY_THRESHOLD
+            # 使用统一重排序器
+            node_postprocessors = [self.unified_reranker]
+
+            # 使用统一检索器创建方法
+            base_retriever = self._create_unified_retriever(
+                index_ids=index_ids,
+                top_k=settings.RETRIEVAL_TOP_K
             )
-            logger.info(f"Wrapped retriever with similarity threshold filter: {settings.SIMILARITY_THRESHOLD}")
+            
+            logger.info(f"Created unified retriever for chat engine with {len(index_ids)} indices")
             
         
             # 创建聊天引擎
@@ -932,7 +1115,7 @@ class RAGService:
                 node_postprocessors=node_postprocessors,
                 llm=self.llm,
                 verbose=True,
-                system_prompt="你是一个专业的文档查询助手。请直接引用和展示提供的上下文文档中的原始内容来回答用户问题，不要对内容进行总结、概括或添加自己的评价。如果上下文信息不足以回答问题，请明确告知用户缺少相关信息。请保持原文档的完整性和准确性，用中文回答。",
+                system_prompt="你是一个专业的文档问答助手。请严格遵循以下规则：\n1. 严格根据给出的上下文回答用户问题，如果上下文没有直接相关信息，请明确说明'我没有此问题的完整信息'\n2. 使用中文回答\n3. 不要自我总结和概述，直接回答用户的具体问题\n4. 回答时不要提及'根据上下文内容'、'根据提供的信息'等表述，直接给出答案",
             )
 
             
@@ -973,7 +1156,7 @@ class RAGService:
             # 记录用户消息
             session.add_message("user", message)
             
-            # 执行流式聊天
+            # 执行流式聊天（聊天引擎已使用统一检索器）
             streaming_response = await session.chat_engine.astream_chat(message)
             
             # 收集完整响应
@@ -994,9 +1177,10 @@ class RAGService:
                 full_response = fallback_message
             
             source_nodes_data = []
+            unique_sources = {}
+            
+            # 处理原始检索节点
             if hasattr(streaming_response, 'source_nodes') and streaming_response.source_nodes:
-                # 使用字典来去重，以source为key
-                unique_sources = {}
                 for node in streaming_response.source_nodes:
                     if node.score > 0.6:
                         # 获取文件路径作为source
@@ -1017,8 +1201,10 @@ class RAGService:
                                 "source": source,
                                 "title": title
                             }
-                
-                source_nodes_data = list(unique_sources.values())
+            
+            source_nodes_data = list(unique_sources.values())
+            # 按分数排序
+            source_nodes_data.sort(key=lambda x: x['score'], reverse=True)
             
             # Store source_nodes in session for later retrieval by frontend_service
             session.last_source_nodes = source_nodes_data
@@ -1068,7 +1254,8 @@ class RAGService:
             
             # 记录用户消息
             session.add_message("user", message)
-            # 执行聊天
+            
+            # 执行聊天（聊天引擎已使用统一检索器）
             response = await session.chat_engine.achat(message)
             logger.info(f"Raw LLM response: {response}")
             logger.info(f"Response type: {type(response)}")
@@ -1083,9 +1270,10 @@ class RAGService:
             
             # 构建source_nodes信息，去重相同source的链接
             source_nodes_info = []
+            unique_sources = {}
+            
+            # 处理原始检索节点
             if hasattr(response, 'source_nodes') and response.source_nodes:
-                # 使用字典来去重，以source为key
-                unique_sources = {}
                 for node in response.source_nodes:
                     # 获取文件路径作为source
                     source = node.node.metadata.get('file_path', node.node.metadata.get('source', 'unknown'))
@@ -1105,8 +1293,10 @@ class RAGService:
                             "source": source,
                             "title": title
                         }
-                
-                source_nodes_info = list(unique_sources.values())
+            
+            source_nodes_info = list(unique_sources.values())
+            # 按分数排序
+            source_nodes_info.sort(key=lambda x: x['score'], reverse=True)
             
             # 记录助手响应
             session.add_message("assistant", response_text, {
@@ -1226,6 +1416,58 @@ class RAGService:
         cleanup_result = ChatDAO.cleanup_expired_sessions()
         if cleanup_result["soft_deleted"] > 0 or cleanup_result["hard_deleted"] > 0:
             logger.info(f"Database cleanup: {cleanup_result['soft_deleted']} soft deleted, {cleanup_result['hard_deleted']} hard deleted")
+        
+        # 清理检索器缓存
+        self.clear_retriever_cache()
+    
+    def clear_retriever_cache(self) -> int:
+        """清理检索器缓存"""
+        cache_count = len(self._retriever_cache)
+        self._retriever_cache.clear()
+        logger.info(f"Cleared {cache_count} cached retrievers")
+        return cache_count
+    
+    def clear_retriever_cache_by_index(self, index_id: str) -> int:
+        """清理特定索引相关的检索器缓存"""
+        cleared_count = 0
+        keys_to_remove = []
+        
+        for cache_key in self._retriever_cache.keys():
+            # 缓存键格式: "index1_index2_top_k"
+            index_part = cache_key.rsplit('_', 1)[0]  # 移除最后的top_k部分
+            if index_id in index_part.split('_'):
+                keys_to_remove.append(cache_key)
+        
+        for key in keys_to_remove:
+            del self._retriever_cache[key]
+            cleared_count += 1
+        
+        if cleared_count > 0:
+            logger.info(f"Cleared {cleared_count} cached retrievers for index {index_id}")
+        
+        return cleared_count
+    
+    def get_cache_stats(self) -> Dict[str, Any]:
+        """获取缓存统计信息"""
+        return {
+            "retriever_cache_size": len(self._retriever_cache),
+            "retriever_cache_keys": list(self._retriever_cache.keys()),
+            "loaded_indexes_count": len(self.loaded_indexes),
+            "active_sessions_count": len(self.sessions)
+        }
+    
+    def clear_all_caches(self) -> Dict[str, int]:
+        """清理所有缓存"""
+        retriever_cache_count = self.clear_retriever_cache()
+        
+        # 如果有其他缓存，也在这里清理
+        result = {
+            "retriever_cache_cleared": retriever_cache_count,
+            "total_cleared": retriever_cache_count
+        }
+        
+        logger.info(f"Cleared all caches: {result}")
+        return result
     
     def get_loaded_indexes(self) -> List[str]:
         """获取已加载的索引列表"""
@@ -1235,9 +1477,24 @@ class RAGService:
         """卸载索引"""
         if index_id in self.loaded_indexes:
             del self.loaded_indexes[index_id]
-            logger.info(f"Unloaded index: {index_id}")
+            # 清理相关的检索器缓存
+            cleared_cache_count = self.clear_retriever_cache_by_index(index_id)
+            logger.info(f"Unloaded index: {index_id}, cleared {cleared_cache_count} related cached retrievers")
             return True
         return False
+    
+    def get_retrieval_stats(self) -> Dict[str, Any]:
+        """获取检索统计信息"""
+        cache_stats = self.get_cache_stats()
+        stats = {
+            "loaded_indexes": list(self.loaded_indexes.keys()),
+            "active_sessions": len(self.sessions),
+            "cache_info": cache_stats
+        }
+      
+        return stats
+    
+   
 
-# 全局RAG服务实例
+# 全局RAG服务实例 - 包含增强功能
 rag_service = RAGService()

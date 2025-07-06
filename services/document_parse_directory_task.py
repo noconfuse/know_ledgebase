@@ -27,6 +27,47 @@ class DocumentParseDirectoryTask(DocumentParseTask):
 
         parser_type = config.get("parser_type") if config else settings.DEFAULT_PARSER_TYPE
         
+        task_dao = TaskDAO()
+        
+        # 检查数据库中是否已存在相同目录路径的任务
+        existing_task = task_dao.get_parse_task_by_file_path(directory_path)
+        
+        if existing_task:
+            logger.info(f"发现现有目录任务 {existing_task.task_id}，目录路径: {directory_path}，复用并重置状态")
+            
+            # 更新任务配置和解析器类型
+            update_data = {
+                'parser_type': parser_type,
+                'config': config or {}
+            }
+            task_dao.update_parse_task(existing_task.task_id, update_data)
+            
+            # 重置任务状态
+            task_dao.reset_parse_task_status(existing_task.task_id)
+            
+            # 重新获取更新后的任务
+            updated_task = task_dao.get_parse_task(existing_task.task_id)
+            
+            # 获取目录下所有支持的一级文件
+            supported_files = []
+            for file_path in directory.glob("*"):
+                if file_path.is_file() and file_path.suffix.lower() in settings.SUPPORTED_FORMATS:
+                    supported_files.append(str(file_path))
+            
+            if not supported_files:
+                raise ValueError(f"目录中未找到支持的文件格式: {directory_path}")
+
+            logger.info(f"支持的文件: {', '.join(supported_files)}")
+            
+            # 为新文件创建子任务，传递主任务作为父任务
+            for file_path in supported_files:
+                sub_task_obj = DocumentParseDirectoryTask.create_parse_task(file_path, config, parent_task=updated_task)
+            
+            return updated_task or existing_task
+        
+        # 如果不存在现有任务，创建新的目录任务
+        logger.info(f"未发现现有目录任务，为目录路径 {directory_path} 创建新任务")
+        
         # 创建主任务ID
         main_task_id = str(uuid.uuid4())
         
@@ -41,7 +82,6 @@ class DocumentParseDirectoryTask(DocumentParseTask):
 
         logger.info(f"支持的文件: {', '.join(supported_files)}")
         
-        
         # 创建目录解析的主任务记录
         main_task = ParseTask(
             task_id=main_task_id,
@@ -52,7 +92,6 @@ class DocumentParseDirectoryTask(DocumentParseTask):
         )
         
         # 先保存主任务到数据库
-        task_dao = TaskDAO()
         main_task = task_dao.create_parse_task(main_task)
 
         # 创建子任务，传递主任务作为父任务

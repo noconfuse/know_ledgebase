@@ -65,13 +65,27 @@ class IndexDAO:
             return None
     
     @staticmethod
-    def get_all_indexes(db: Session) -> List[IndexInfo]:
-        """获取所有索引信息"""
+    def get_all_indexes(db: Session, limit: Optional[int] = None, offset: int = 0) -> List[IndexInfo]:
+        """获取所有索引信息（支持分页）"""
         try:
-            return db.query(IndexInfo).all()
+            query = db.query(IndexInfo).order_by(IndexInfo.created_at.desc())
+            if offset > 0:
+                query = query.offset(offset)
+            if limit:
+                query = query.limit(limit)
+            return query.all()
         except Exception as e:
             logger.error(f"Failed to get all index info: {e}")
             return []
+    
+    @staticmethod
+    def get_indexes_count(db: Session) -> int:
+        """获取索引总数"""
+        try:
+            return db.query(IndexInfo).count()
+        except Exception as e:
+            logger.error(f"Failed to get indexes count: {e}")
+            return 0
     
     @staticmethod
     def update_index_description(db: Session, index_id: str, index_description: str) -> Optional[IndexInfo]:

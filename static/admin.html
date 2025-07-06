@@ -1,0 +1,2096 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>知识库管理界面</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background-color: #f5f5f5;
+            color: #333;
+        }
+        
+        .container {
+            width: 100%;
+            margin: 0;
+            padding: 20px;
+        }
+        
+        .header {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            padding: 30px;
+            border-radius: 10px;
+            margin-bottom: 30px;
+            text-align: center;
+        }
+        
+        .header h1 {
+            font-size: 2.5em;
+            margin-bottom: 10px;
+        }
+        
+        .tabs {
+            display: flex;
+            background: white;
+            border-radius: 10px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+            margin-bottom: 20px;
+            overflow: hidden;
+        }
+        
+        .tab {
+            flex: 1;
+            padding: 15px 20px;
+            background: #f8f9fa;
+            border: none;
+            cursor: pointer;
+            font-size: 16px;
+            transition: all 0.3s ease;
+            border-right: 1px solid #e9ecef;
+        }
+        
+        .tab:last-child {
+            border-right: none;
+        }
+        
+        .tab.active {
+            background: #667eea;
+            color: white;
+        }
+        
+        .tab:hover:not(.active) {
+            background: #e9ecef;
+        }
+        
+        .content {
+            background: white;
+            border-radius: 10px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+            padding: 20px;
+        }
+        
+        .tab-content {
+            display: none;
+        }
+        
+        .tab-content.active {
+            display: block;
+        }
+        
+        .controls {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 20px;
+            flex-wrap: wrap;
+            gap: 10px;
+        }
+        
+        .pagination {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+        
+        .pagination input {
+            width: 80px;
+            padding: 8px;
+            border: 1px solid #ddd;
+            border-radius: 5px;
+            text-align: center;
+        }
+        
+        .pagination button {
+            padding: 8px 15px;
+            background: #667eea;
+            color: white;
+            border: none;
+            border-radius: 5px;
+            cursor: pointer;
+            transition: background 0.3s ease;
+        }
+        
+        .pagination button:hover {
+            background: #5a6fd8;
+        }
+        
+        .pagination button:disabled {
+            background: #ccc;
+            cursor: not-allowed;
+        }
+        
+        .refresh-btn {
+            padding: 10px 20px;
+            background: #28a745;
+            color: white;
+            border: none;
+            border-radius: 5px;
+            cursor: pointer;
+            font-size: 14px;
+            transition: background 0.3s ease;
+        }
+        
+        .refresh-btn:hover {
+            background: #218838;
+        }
+        
+        .table-container {
+            overflow-x: auto;
+        }
+        
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-top: 10px;
+        }
+        
+        th, td {
+            padding: 12px;
+            text-align: left;
+            border-bottom: 1px solid #e9ecef;
+        }
+        
+        th {
+            background: #f8f9fa;
+            font-weight: 600;
+            color: #495057;
+        }
+        
+        tr:hover {
+            background: #f8f9fa;
+        }
+        
+        .status {
+            padding: 4px 8px;
+            border-radius: 4px;
+            font-size: 12px;
+            font-weight: bold;
+            text-transform: uppercase;
+        }
+        
+        .status.completed {
+            background: #d4edda;
+            color: #155724;
+        }
+        
+        .status.running {
+            background: #d1ecf1;
+            color: #0c5460;
+        }
+        
+        .status.failed {
+            background: #f8d7da;
+            color: #721c24;
+        }
+        
+        .status.pending {
+            background: #fff3cd;
+            color: #856404;
+        }
+        
+        .loading {
+            text-align: center;
+            padding: 40px;
+            color: #666;
+        }
+        
+        .error {
+            background: #f8d7da;
+            color: #721c24;
+            padding: 15px;
+            border-radius: 5px;
+            margin: 10px 0;
+        }
+        
+        .info {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 15px;
+            padding: 10px;
+            background: #e7f3ff;
+            border-radius: 5px;
+        }
+        
+        .truncate {
+            max-width: 200px;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+        
+        .action-btn {
+            padding: 6px 12px;
+            margin: 2px;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 12px;
+            transition: all 0.3s ease;
+        }
+        
+        .action-btn.restart {
+            background: #ffc107;
+            color: #212529;
+        }
+        
+        .action-btn.restart:hover {
+            background: #e0a800;
+        }
+        
+        .action-btn.edit {
+            background: #17a2b8;
+            color: white;
+        }
+        
+        .action-btn.edit:hover {
+            background: #138496;
+        }
+        
+        .action-btn.delete {
+            background: #dc3545;
+            color: white;
+        }
+        
+        .action-btn.delete:hover {
+            background: #c82333;
+        }
+        
+        .action-btn.reset {
+            background: #6f42c1;
+            color: white;
+        }
+        
+        .action-btn.reset:hover {
+            background: #5a32a3;
+        }
+        
+        .action-btn:disabled {
+            background: #6c757d;
+            cursor: not-allowed;
+            opacity: 0.6;
+        }
+        
+        /* 二级任务列表样式 */
+        .sub-task {
+            background-color: #f8f9fa;
+            border-left: 3px solid #007bff;
+        }
+        
+        .sub-task td:first-child {
+            padding-left: 30px;
+            position: relative;
+        }
+        
+        .sub-task td:first-child::before {
+            content: "└─";
+            position: absolute;
+            left: 15px;
+            color: #6c757d;
+        }
+        
+        .parent-task {
+            font-weight: 600;
+        }
+        
+        .toggle-subtasks {
+            cursor: pointer;
+            color: #007bff;
+            font-size: 12px;
+            margin-left: 10px;
+        }
+        
+        .toggle-subtasks:hover {
+            text-decoration: underline;
+        }
+        
+        /* 模态框样式 */
+        .modal {
+            display: none;
+            position: fixed;
+            z-index: 1000;
+            left: 0;
+            top: 0;
+            width: 100%;
+            height: 100%;
+            background-color: rgba(0,0,0,0.5);
+            align-items: center;
+            justify-content: center;
+        }
+        
+        .modal.show {
+            display: flex;
+        }
+        
+        .modal-content {
+            background-color: white;
+            padding: 20px;
+            border-radius: 10px;
+            width: 80%;
+            max-width: 500px;
+            max-height: 90vh;
+            overflow-y: auto;
+            box-shadow: 0 4px 20px rgba(0,0,0,0.3);
+        }
+        
+        .modal-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 20px;
+            padding-bottom: 10px;
+            border-bottom: 1px solid #e9ecef;
+        }
+        
+        .modal-title {
+            font-size: 1.25em;
+            font-weight: 600;
+            color: #495057;
+        }
+        
+        .close {
+            color: #aaa;
+            font-size: 28px;
+            font-weight: bold;
+            cursor: pointer;
+            line-height: 1;
+        }
+        
+        .close:hover {
+            color: #000;
+        }
+        
+        .modal-body {
+            margin-bottom: 20px;
+        }
+        
+        .modal-footer {
+            display: flex;
+            justify-content: flex-end;
+            gap: 10px;
+        }
+        
+        .form-group {
+            margin-bottom: 15px;
+        }
+        
+        .form-group label {
+            display: block;
+            margin-bottom: 5px;
+            font-weight: 600;
+            color: #495057;
+        }
+        
+        .form-group input, .form-group textarea, .form-group select {
+            width: 100%;
+            padding: 8px 12px;
+            border: 1px solid #ced4da;
+            border-radius: 4px;
+            font-size: 14px;
+        }
+        
+        .form-group textarea {
+            resize: vertical;
+            min-height: 80px;
+        }
+        
+        .btn {
+            padding: 8px 16px;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 14px;
+            transition: all 0.3s ease;
+        }
+        
+        .btn-primary {
+            background: #667eea;
+            color: white;
+        }
+        
+        .btn-primary:hover {
+            background: #5a6fd8;
+        }
+        
+        .btn-secondary {
+            background: #6c757d;
+            color: white;
+        }
+        
+        .btn-secondary:hover {
+            background: #5a6268;
+        }
+        
+        .btn-danger {
+            background: #dc3545;
+            color: white;
+        }
+        
+        .btn-danger:hover {
+            background: #c82333;
+        }
+        
+        .alert {
+            padding: 12px;
+            margin-bottom: 15px;
+            border-radius: 4px;
+        }
+        
+        .alert-success {
+            background: #d4edda;
+            color: #155724;
+            border: 1px solid #c3e6cb;
+        }
+        
+        .alert-danger {
+            background: #f8d7da;
+            color: #721c24;
+            border: 1px solid #f5c6cb;
+        }
+        
+        .alert-warning {
+            background: #fff3cd;
+            color: #856404;
+            border: 1px solid #ffeaa7;
+        }
+        
+        @media (max-width: 768px) {
+            .tabs {
+                flex-direction: column;
+            }
+            
+            .controls {
+                flex-direction: column;
+                align-items: stretch;
+            }
+            
+            .pagination {
+                justify-content: center;
+            }
+            
+            .modal-content {
+                width: 95%;
+                margin: 10% auto;
+            }
+            
+            .action-btn {
+                padding: 4px 8px;
+                font-size: 11px;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>知识库管理界面</h1>
+            <p>分页查看解析任务、向量化任务、对话记录和向量索引</p>
+        </div>
+        
+        <div class="tabs">
+            <button class="tab active" onclick="showTab('dashboard')">仪表板</button>
+            <button class="tab" onclick="showTab('parse-tasks')">解析任务</button>
+            <button class="tab" onclick="showTab('vector-tasks')">向量化任务</button>
+            <button class="tab" onclick="showTab('chat-sessions')">对话记录</button>
+            <button class="tab" onclick="showTab('vector-indexes')">向量索引</button>
+        </div>
+        
+        <div class="content">
+            <!-- 仪表板 -->
+            <div id="dashboard" class="tab-content active">
+                <div class="controls">
+                    <div class="info">
+                        <span>系统概览</span>
+                        <button class="refresh-btn" onclick="loadDashboard()">刷新数据</button>
+                    </div>
+                </div>
+                <div id="dashboard-content">
+                    <div class="loading">加载中...</div>
+                </div>
+            </div>
+            
+            <!-- 解析任务 -->
+            <div id="parse-tasks" class="tab-content">
+                <div class="controls">
+                    <div class="info">
+                        <span>解析任务列表 (总计: <span id="parse-total">0</span>)</span>
+                        <div style="display: flex; gap: 10px; align-items: center;">
+                            <input type="text" id="parse-filename-filter" placeholder="按文件名过滤..." style="padding: 5px; border: 1px solid #ddd; border-radius: 4px; width: 200px;" onkeyup="filterParseTasks()">
+                            <button class="btn btn-primary" onclick="openCreateTaskModal()">创建解析任务</button>
+                            <button class="refresh-btn" onclick="loadParseTasks()">刷新</button>
+                        </div>
+                    </div>
+                    <div class="pagination">
+                        <button onclick="prevPage('parse')" id="parse-prev">上一页</button>
+                        <span>每页</span>
+                        <input type="number" id="parse-limit" value="20" min="1" max="100" onchange="loadParseTasks()">
+                        <span>条，第</span>
+                        <input type="number" id="parse-page" value="1" min="1" onchange="loadParseTasks()">
+                        <span>页</span>
+                        <button onclick="nextPage('parse')" id="parse-next">下一页</button>
+                    </div>
+                </div>
+                <div class="table-container">
+                    <table id="parse-table">
+                        <thead>
+                            <tr>
+                                <th>任务ID</th>
+                                <th>文件路径</th>
+                                <th>状态</th>
+                                <th>进度</th>
+                                <th>创建时间</th>
+                                <th>完成时间</th>
+                                <th>错误信息</th>
+                                <th>操作</th>
+                            </tr>
+                        </thead>
+                        <tbody id="parse-tbody">
+                            <tr><td colspan="7" class="loading">加载中...</td></tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+            
+            <!-- 向量化任务 -->
+            <div id="vector-tasks" class="tab-content">
+                <div class="controls">
+                    <div class="info">
+                        <span>向量化任务列表 (总计: <span id="vector-total">0</span>)</span>
+                        <div style="display: flex; gap: 10px;">
+                            <button class="btn btn-primary" onclick="openCreateVectorTaskModal()">创建向量化任务</button>
+                            <button class="refresh-btn" onclick="loadVectorTasks()">刷新</button>
+                        </div>
+                    </div>
+                    <div class="pagination">
+                        <button onclick="prevPage('vector')" id="vector-prev">上一页</button>
+                        <span>每页</span>
+                        <input type="number" id="vector-limit" value="20" min="1" max="100" onchange="loadVectorTasks()">
+                        <span>条，第</span>
+                        <input type="number" id="vector-page" value="1" min="1" onchange="loadVectorTasks()">
+                        <span>页</span>
+                        <button onclick="nextPage('vector')" id="vector-next">下一页</button>
+                    </div>
+                </div>
+                <div class="table-container">
+                    <table id="vector-table">
+                        <thead>
+                            <tr>
+                                <th>任务ID</th>
+                                <th>解析任务ID</th>
+                                <th>索引ID</th>
+                                <th>状态</th>
+                                <th>进度</th>
+                                <th>创建时间</th>
+                                <th>完成时间</th>
+                                <th>错误信息</th>
+                                <th>操作</th>
+                            </tr>
+                        </thead>
+                        <tbody id="vector-tbody">
+                            <tr><td colspan="9" class="loading">加载中...</td></tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+            
+            <!-- 对话记录 -->
+            <div id="chat-sessions" class="tab-content">
+                <div class="controls">
+                    <div class="info">
+                        <span>对话记录列表 (总计: <span id="chat-total">0</span>)</span>
+                        <button class="refresh-btn" onclick="loadChatSessions()">刷新</button>
+                    </div>
+                    <div class="pagination">
+                        <button onclick="prevPage('chat')" id="chat-prev">上一页</button>
+                        <span>每页</span>
+                        <input type="number" id="chat-limit" value="20" min="1" max="100" onchange="loadChatSessions()">
+                        <span>条，第</span>
+                        <input type="number" id="chat-page" value="1" min="1" onchange="loadChatSessions()">
+                        <span>页</span>
+                        <button onclick="nextPage('chat')" id="chat-next">下一页</button>
+                    </div>
+                </div>
+                <div class="table-container">
+                    <table id="chat-table">
+                        <thead>
+                            <tr>
+                                <th>会话ID</th>
+                                <th>用户ID</th>
+                                <th>用户信息</th>
+                                <th>索引ID</th>
+                                <th>状态</th>
+                                <th>创建时间</th>
+                                <th>最后活动</th>
+                                <th>操作</th>
+                            </tr>
+                        </thead>
+                        <tbody id="chat-tbody">
+                            <tr><td colspan="8" class="loading">加载中...</td></tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+            
+            <!-- 向量索引 -->
+            <div id="vector-indexes" class="tab-content">
+                <div class="controls">
+                    <div class="info">
+                        <span>向量索引列表 (总计: <span id="index-total">0</span>)</span>
+                        <button class="refresh-btn" onclick="loadVectorIndexes()">刷新</button>
+                    </div>
+                    <div class="pagination">
+                        <button onclick="prevPage('index')" id="index-prev">上一页</button>
+                        <span>每页</span>
+                        <input type="number" id="index-limit" value="20" min="1" max="100" onchange="loadVectorIndexes()">
+                        <span>条，第</span>
+                        <input type="number" id="index-page" value="1" min="1" onchange="loadVectorIndexes()">
+                        <span>页</span>
+                        <button onclick="nextPage('index')" id="index-next">下一页</button>
+                    </div>
+                </div>
+                <div class="table-container">
+                    <table id="index-table">
+                        <thead>
+                            <tr>
+                                <th>索引ID</th>
+                                <th>描述</th>
+                                <th>原始文件</th>
+                                <th>文档数</th>
+                                <th>节点数</th>
+                                <th>向量维度</th>
+                                <th>创建时间</th>
+                                <th>操作</th>
+                            </tr>
+                        </thead>
+                        <tbody id="index-tbody">
+                            <tr><td colspan="7" class="loading">加载中...</td></tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+    </div>
+    
+    <!-- 模态框 -->
+    <!-- 编辑索引描述模态框 -->
+    <div id="editIndexModal" class="modal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h3 class="modal-title">编辑索引描述</h3>
+                <span class="close" onclick="closeModal('editIndexModal')">&times;</span>
+            </div>
+            <div class="modal-body">
+                <div class="form-group">
+                    <label for="editIndexId">索引ID</label>
+                    <input type="text" id="editIndexId" readonly>
+                </div>
+                <div class="form-group">
+                    <label for="editIndexDescription">描述</label>
+                    <textarea id="editIndexDescription" placeholder="请输入索引描述"></textarea>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button class="btn btn-secondary" onclick="closeModal('editIndexModal')">取消</button>
+                <button class="btn btn-primary" onclick="saveIndexDescription()">保存</button>
+            </div>
+        </div>
+    </div>
+    
+    <!-- 删除确认模态框 -->
+    <div id="deleteConfirmModal" class="modal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h3 class="modal-title">确认删除</h3>
+                <span class="close" onclick="closeModal('deleteConfirmModal')">&times;</span>
+            </div>
+            <div class="modal-body">
+                <div class="alert alert-warning">
+                    <strong>警告：</strong>此操作不可逆！删除向量索引将永久删除所有相关数据。
+                </div>
+                <p>确定要删除索引 <strong id="deleteIndexId"></strong> 吗？</p>
+                <div class="form-group">
+                    <label for="deleteConfirmText">请输入 "确认删除" 来确认操作</label>
+                    <input type="text" id="deleteConfirmText" placeholder="确认删除">
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button class="btn btn-secondary" onclick="closeModal('deleteConfirmModal')">取消</button>
+                <button class="btn btn-danger" onclick="confirmDeleteIndex()" id="confirmDeleteBtn" disabled>删除</button>
+            </div>
+        </div>
+    </div>
+    
+    <!-- 重置会话索引模态框 -->
+    <div id="resetSessionModal" class="modal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h3 class="modal-title">重置会话索引</h3>
+                <span class="close" onclick="closeModal('resetSessionModal')">&times;</span>
+            </div>
+            <div class="modal-body">
+                <div class="form-group">
+                    <label for="resetSessionId">会话ID</label>
+                    <input type="text" id="resetSessionId" readonly>
+                </div>
+                <div class="form-group">
+                    <label>选择新的索引（可多选）</label>
+                    <div id="indexCheckboxList" style="max-height: 200px; overflow-y: auto; border: 1px solid #ddd; padding: 10px; border-radius: 4px;">
+                        <!-- 索引复选框将在这里动态生成 -->
+                    </div>
+                </div>
+                <div class="alert alert-info">
+                    <strong>说明：</strong>此操作将重新绑定会话的索引，请选择要关联的索引。
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button class="btn btn-secondary" onclick="closeModal('resetSessionModal')">取消</button>
+                <button class="btn btn-primary" onclick="resetSessionIndex()">确认重置</button>
+            </div>
+        </div>
+    </div>
+    
+    <!-- 创建解析任务模态框 -->
+    <div id="createTaskModal" class="modal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h3 class="modal-title">创建解析任务</h3>
+                <span class="close" onclick="closeModal('createTaskModal')">&times;</span>
+            </div>
+            <div class="modal-body">
+                <div class="form-group">
+                    <label for="filePath">选择文件或目录</label>
+                    <div id="fileTreeContainer" style="border: 1px solid #ddd; border-radius: 4px; padding: 10px; max-height: 300px; overflow-y: auto; background: #f9f9f9;">
+                        <div class="loading">加载文件树中...</div>
+                    </div>
+                    <input type="hidden" id="selectedFilePath" value="">
+                    <input type="hidden" id="selectedType" value="">
+                    <div id="selectedFileDisplay" style="margin-top: 8px; padding: 8px; background: #e9ecef; border-radius: 4px; display: none;">
+                        <strong>已选择：</strong><span id="selectedFileName"></span> <span id="selectedTypeDisplay" style="color: #666; font-size: 12px;"></span>
+                    </div>
+                </div>
+                
+                <div class="form-group">
+                    <label for="parserType">解析器类型</label>
+                    <select id="parserType">
+                        <option value="docling">Docling (支持多种格式)</option>
+                        <option value="mineru">MinerU (仅支持PDF)</option>
+                    </select>
+                </div>
+                
+                <div class="form-group">
+                    <label for="taskConfig">高级配置 (JSON格式，可选)</label>
+                    <textarea id="taskConfig" placeholder='{
+  "ocr_enabled": false,
+  "extract_tables": true,
+  "extract_images": true,
+  "max_workers": 4
+}' rows="6"></textarea>
+                    <small style="color: #666; font-size: 12px;">
+                        可配置参数：ocr_enabled(启用OCR), extract_tables(提取表格), extract_images(提取图片), max_workers(并发数，仅MinerU)
+                    </small>
+                </div>
+                
+                <div class="alert alert-info">
+                    <strong>功能说明：</strong>
+                    <ul style="margin: 5px 0 0 20px;">
+                        <li><strong>文件解析：</strong>从uploads目录树中选择特定文件进行解析</li>
+                        <li><strong>目录解析：</strong>选择目录可解析该目录下所有支持的文件格式</li>
+                    </ul>
+                    <strong>解析器对比：</strong>
+                    <ul style="margin: 5px 0 0 20px;">
+                        <li><strong>Docling：</strong>支持PDF、Word、Excel、PowerPoint、HTML等多种格式，通用性强</li>
+                        <li><strong>MinerU：</strong>专门针对PDF优化，支持复杂布局和公式解析，PDF效果更佳</li>
+                    </ul>
+                    <strong>配置参数：</strong>
+                    <ul style="margin: 5px 0 0 20px;">
+                        <li><strong>ocr_enabled：</strong>是否启用OCR识别图片中的文字（默认false）</li>
+                        <li><strong>extract_tables：</strong>是否提取表格结构（默认true）</li>
+                        <li><strong>extract_images：</strong>是否提取图片信息（默认true）</li>
+                        <li><strong>max_workers：</strong>MinerU解析器的并发线程数（默认4，仅对MinerU有效）</li>
+                    </ul>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button class="btn btn-secondary" onclick="closeModal('createTaskModal')">取消</button>
+                <button class="btn btn-primary" onclick="createParseTask()">创建任务</button>
+            </div>
+        </div>
+    </div>
+    
+    <!-- 重新执行解析任务模态框 -->
+    <div id="restartParseTaskModal" class="modal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h3 class="modal-title">重新执行解析任务</h3>
+                <span class="close" onclick="closeModal('restartParseTaskModal')">&times;</span>
+            </div>
+            <div class="modal-body">
+                <div class="form-group">
+                    <label>任务信息</label>
+                    <div id="restartTaskInfo" style="padding: 10px; background: #f8f9fa; border-radius: 4px; margin-bottom: 15px;">
+                        <div><strong>任务ID：</strong><span id="restartTaskId"></span></div>
+                        <div><strong>文件路径：</strong><span id="restartFilePath"></span></div>
+                        <div><strong>文件类型：</strong><span id="restartFileType"></span></div>
+                    </div>
+                </div>
+                
+                <div class="form-group">
+                    <label for="restartParserType">解析器类型</label>
+                    <select id="restartParserType">
+                        <option value="docling">Docling (支持多种格式)</option>
+                        <option value="mineru">MinerU (仅支持PDF)</option>
+                    </select>
+                </div>
+                
+                <div class="form-group">
+                    <label for="restartTaskConfig">高级配置 (JSON格式，可选)</label>
+                    <textarea id="restartTaskConfig" placeholder='{
+  "ocr_enabled": false,
+  "extract_tables": true,
+  "extract_images": true,
+  "max_workers": 4
+}' rows="6"></textarea>
+                    <small style="color: #666; font-size: 12px;">
+                        可配置参数：ocr_enabled(启用OCR), extract_tables(提取表格), extract_images(提取图片), max_workers(并发数，仅MinerU)
+                    </small>
+                </div>
+                
+                <div class="alert alert-warning">
+                    <strong>注意：</strong>重新执行任务将使用新的配置参数重新解析文件，之前的解析结果将被覆盖。
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button class="btn btn-secondary" onclick="closeModal('restartParseTaskModal')">取消</button>
+                <button class="btn btn-primary" onclick="executeRestartParseTask()">重新执行</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- 创建向量化任务模态框 -->
+    <div id="createVectorTaskModal" class="modal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h3 class="modal-title">创建向量化任务</h3>
+                <span class="close" onclick="closeModal('createVectorTaskModal')">&times;</span>
+            </div>
+            <div class="modal-body">
+                <div class="form-group">
+                    <label for="vectorParseTaskId">选择解析任务</label>
+                    <select id="vectorParseTaskId" style="width: 100%; padding: 8px; border: 1px solid #ddd; border-radius: 4px;">
+                        <option value="">请选择已完成的解析任务...</option>
+                    </select>
+                    <small style="color: #666; font-size: 12px;">只显示状态为COMPLETED的解析任务</small>
+                </div>
+                
+                <div id="selectedParseTaskInfo" style="display: none; padding: 10px; background: #f8f9fa; border-radius: 4px; margin-top: 10px;">
+                    <div><strong>任务ID：</strong><span id="selectedParseTaskIdDisplay"></span></div>
+                    <div><strong>文件路径：</strong><span id="selectedParseTaskPath"></span></div>
+                    <div><strong>完成时间：</strong><span id="selectedParseTaskTime"></span></div>
+                </div>
+                
+                <div class="alert alert-info">
+                    <strong>说明：</strong>
+                    <ul style="margin: 5px 0 0 20px;">
+                        <li>向量化任务将基于选择的解析任务创建向量索引</li>
+                        <li>只能选择状态为COMPLETED的解析任务</li>
+                        <li>向量化任务没有父任务ID，独立运行</li>
+                        <li>创建后可在向量化任务列表中查看进度</li>
+                    </ul>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button class="btn btn-secondary" onclick="closeModal('createVectorTaskModal')">取消</button>
+                <button class="btn btn-primary" onclick="createVectorTask()">创建任务</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- 通知消息 -->
+    <div id="notification" style="display: none; position: fixed; top: 20px; right: 20px; z-index: 1001; max-width: 300px;"></div>
+    
+    <script>
+        // 全局变量
+        let currentTab = 'dashboard';
+        const pageData = {
+            parse: { page: 1, limit: 20, total: 0 },
+            vector: { page: 1, limit: 20, total: 0 },
+            chat: { page: 1, limit: 20, total: 0 },
+            index: { page: 1, limit: 20, total: 0 }
+        };
+        
+        // 切换标签页
+        function showTab(tabName) {
+            // 隐藏所有标签内容
+            document.querySelectorAll('.tab-content').forEach(content => {
+                content.classList.remove('active');
+            });
+            
+            // 移除所有标签的active类
+            document.querySelectorAll('.tab').forEach(tab => {
+                tab.classList.remove('active');
+            });
+            
+            // 显示选中的标签内容
+            document.getElementById(tabName).classList.add('active');
+            
+            // 添加active类到选中的标签
+            event.target.classList.add('active');
+            
+            currentTab = tabName;
+            
+            // 加载对应数据
+            switch(tabName) {
+                case 'dashboard':
+                    loadDashboard();
+                    break;
+                case 'parse-tasks':
+                    loadParseTasks();
+                    break;
+                case 'vector-tasks':
+                    loadVectorTasks();
+                    break;
+                case 'chat-sessions':
+                    loadChatSessions();
+                    break;
+                case 'vector-indexes':
+                    loadVectorIndexes();
+                    break;
+            }
+        }
+        
+        // 通用API调用函数
+        async function apiCall(endpoint) {
+            try {
+                const response = await fetch(endpoint);
+                if (!response.ok) {
+                    throw new Error(`HTTP error! status: ${response.status}`);
+                }
+                return await response.json();
+            } catch (error) {
+                console.error('API调用失败:', error);
+                throw error;
+            }
+        }
+        
+        // 格式化日期
+        function formatDate(dateString) {
+            if (!dateString) return '-';
+            return new Date(dateString).toLocaleString('zh-CN');
+        }
+        
+        // 格式化状态
+        function formatStatus(status) {
+            const statusMap = {
+                'COMPLETED': 'completed',
+                'RUNNING': 'running',
+                'FAILED': 'failed',
+                'PENDING': 'pending'
+            };
+            const className = statusMap[status] || 'pending';
+            return `<span class="status ${className}">${status}</span>`;
+        }
+        
+        // 截断文本
+        function truncateText(text, maxLength = 50) {
+            if (!text) return '-';
+            return text.length > maxLength ? text.substring(0, maxLength) + '...' : text;
+        }
+        
+        // 加载仪表板
+        async function loadDashboard() {
+            const content = document.getElementById('dashboard-content');
+            content.innerHTML = '<div class="loading">加载中...</div>';
+            
+            try {
+                const data = await apiCall('/admin/dashboard?limit=5');
+                
+                let html = '<div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 20px;">';
+                
+                // 解析任务概览
+                html += `
+                    <div style="background: #f8f9fa; padding: 20px; border-radius: 8px;">
+                        <h3 style="margin-bottom: 15px; color: #495057;">解析任务 (最近5条)</h3>
+                        <p style="margin-bottom: 10px;">总计: ${data.data.parse_tasks.total}</p>
+                        <div style="max-height: 200px; overflow-y: auto;">
+                `;
+                
+                data.data.parse_tasks.items.forEach(task => {
+                    html += `
+                        <div style="padding: 8px; border-bottom: 1px solid #dee2e6; font-size: 14px;">
+                            <div><strong>${task.task_id}</strong></div>
+                            <div>${formatStatus(task.status)} - ${task.progress || 0}%</div>
+                            <div style="color: #6c757d;">${truncateText(task.file_path, 30)}</div>
+                        </div>
+                    `;
+                });
+                
+                html += '</div></div>';
+                
+                // 向量化任务概览
+                html += `
+                    <div style="background: #f8f9fa; padding: 20px; border-radius: 8px;">
+                        <h3 style="margin-bottom: 15px; color: #495057;">向量化任务 (最近5条)</h3>
+                        <p style="margin-bottom: 10px;">总计: ${data.data.vector_tasks.total}</p>
+                        <div style="max-height: 200px; overflow-y: auto;">
+                `;
+                
+                data.data.vector_tasks.items.forEach(task => {
+                    html += `
+                        <div style="padding: 8px; border-bottom: 1px solid #dee2e6; font-size: 14px;">
+                            <div><strong>${task.task_id}</strong></div>
+                            <div>${formatStatus(task.status)} - ${task.progress || 0}%</div>
+                            <div style="color: #6c757d;">父任务: ${task.parent_task_id || '-'}</div>
+                        </div>
+                    `;
+                });
+                
+                html += '</div></div>';
+                
+                // 对话会话概览
+                html += `
+                    <div style="background: #f8f9fa; padding: 20px; border-radius: 8px;">
+                        <h3 style="margin-bottom: 15px; color: #495057;">对话会话 (最近5条)</h3>
+                        <p style="margin-bottom: 10px;">总计: ${data.data.chat_sessions.total}</p>
+                        <div style="max-height: 200px; overflow-y: auto;">
+                `;
+                
+                data.data.chat_sessions.items.forEach(session => {
+                    html += `
+                        <div style="padding: 8px; border-bottom: 1px solid #dee2e6; font-size: 14px;">
+                            <div><strong>${session.session_id}</strong></div>
+                            <div>用户: ${session.user_id}</div>
+                            <div style="color: #6c757d;">${session.is_active ? '活跃' : '非活跃'}</div>
+                        </div>
+                    `;
+                });
+                
+                html += '</div></div>';
+                
+                // 向量索引概览
+                html += `
+                    <div style="background: #f8f9fa; padding: 20px; border-radius: 8px;">
+                        <h3 style="margin-bottom: 15px; color: #495057;">向量索引 (最近5条)</h3>
+                        <p style="margin-bottom: 10px;">总计: ${data.data.vector_indexes.total}</p>
+                        <div style="max-height: 200px; overflow-y: auto;">
+                `;
+                
+                data.data.vector_indexes.items.forEach(index => {
+                    html += `
+                        <div style="padding: 8px; border-bottom: 1px solid #dee2e6; font-size: 14px;">
+                            <div><strong>${index.index_id}</strong></div>
+                            <div>文档: ${index.document_count || 0}, 节点: ${index.node_count || 0}</div>
+                            <div style="color: #6c757d;">${truncateText(index.index_description, 30)}</div>
+                        </div>
+                    `;
+                });
+                
+                html += '</div></div>';
+                html += '</div>';
+                
+                content.innerHTML = html;
+            } catch (error) {
+                content.innerHTML = `<div class="error">加载失败: ${error.message}</div>`;
+            }
+        }
+        
+        // 加载解析任务
+        async function loadParseTasks() {
+            const limit = document.getElementById('parse-limit').value;
+            const page = document.getElementById('parse-page').value;
+            const offset = (page - 1) * limit;
+            
+            const tbody = document.getElementById('parse-tbody');
+            tbody.innerHTML = '<tr><td colspan="8" class="loading">加载中...</td></tr>';
+            
+            try {
+                const data = await apiCall(`/admin/parse-tasks?limit=${limit}&offset=${offset}`);
+                
+                pageData.parse.total = data.data.total;
+                document.getElementById('parse-total').textContent = data.data.total;
+                
+                // 按父子关系组织任务
+                const parentTasks = [];
+                const childTasks = {};
+                
+                data.data.items.forEach(task => {
+                    if (task.parent_task_id) {
+                        if (!childTasks[task.parent_task_id]) {
+                            childTasks[task.parent_task_id] = [];
+                        }
+                        childTasks[task.parent_task_id].push(task);
+                    } else {
+                        parentTasks.push(task);
+                    }
+                });
+                
+                let html = '';
+                parentTasks.forEach(task => {
+                    const canRestart = task.status !== 'RUNNING';
+                    const hasChildren = childTasks[task.task_id] && childTasks[task.task_id].length > 0;
+                    
+                    // 父任务行
+                    html += `
+                        <tr class="parent-task">
+                            <td class="truncate" title="${task.task_id}">
+                                ${task.task_id}
+                                ${hasChildren ? `<span class="toggle-subtasks" onclick="toggleSubTasks('${task.task_id}')" id="toggle-${task.task_id}">[+] ${childTasks[task.task_id].length}个子任务</span>` : ''}
+                            </td>
+                            <td class="truncate" title="${task.file_path || '-'}">${truncateText(task.file_path)}</td>
+                            <td>${formatStatus(task.status)}</td>
+                            <td>${task.progress || 0}%</td>
+                            <td>${formatDate(task.created_at)}</td>
+                            <td>${formatDate(task.completed_at)}</td>
+                            <td class="truncate" title="${task.error || '-'}">${truncateText(task.error)}</td>
+                            <td>
+                                <button class="action-btn restart" 
+                                        onclick="restartParseTask('${task.task_id}')" 
+                                        ${!canRestart ? 'disabled' : ''}
+                                        title="${canRestart ? '重新执行任务' : '任务正在运行中'}">
+                                    重新执行
+                                </button>
+                            </td>
+                        </tr>
+                    `;
+                    
+                    // 子任务行（默认隐藏）
+                    if (hasChildren) {
+                        childTasks[task.task_id].forEach(childTask => {
+                            const childCanRestart = childTask.status !== 'RUNNING';
+                            html += `
+                                <tr class="sub-task" id="subtask-${task.task_id}" style="display: none;">
+                                    <td class="truncate" title="${childTask.task_id}">${childTask.task_id}</td>
+                                    <td class="truncate" title="${childTask.file_path || '-'}">${truncateText(childTask.file_path)}</td>
+                                    <td>${formatStatus(childTask.status)}</td>
+                                    <td>${childTask.progress || 0}%</td>
+                                    <td>${formatDate(childTask.created_at)}</td>
+                                    <td>${formatDate(childTask.completed_at)}</td>
+                                    <td class="truncate" title="${childTask.error || '-'}">${truncateText(childTask.error)}</td>
+                                    <td>
+                                        <button class="action-btn restart" 
+                                                onclick="restartParseTask('${childTask.task_id}')" 
+                                                ${!childCanRestart ? 'disabled' : ''}
+                                                title="${childCanRestart ? '重新执行任务' : '任务正在运行中'}">
+                                            重新执行
+                                        </button>
+                                    </td>
+                                </tr>
+                            `;
+                        });
+                    }
+                });
+                
+                tbody.innerHTML = html || '<tr><td colspan="9" style="text-align: center; color: #666;">暂无数据</td></tr>';
+                updatePagination('parse');
+            } catch (error) {
+                tbody.innerHTML = `<tr><td colspan="9" class="error">加载失败: ${error.message}</td></tr>`;
+            }
+        }
+        
+        // 加载向量化任务
+        async function loadVectorTasks() {
+            const limit = document.getElementById('vector-limit').value;
+            const page = document.getElementById('vector-page').value;
+            const offset = (page - 1) * limit;
+            
+            const tbody = document.getElementById('vector-tbody');
+            tbody.innerHTML = '<tr><td colspan="9" class="loading">加载中...</td></tr>';
+            
+            try {
+                const data = await apiCall(`/admin/vector-tasks?limit=${limit}&offset=${offset}`);
+                
+                pageData.vector.total = data.data.total;
+                document.getElementById('vector-total').textContent = data.data.total;
+                
+                let html = '';
+                data.data.items.forEach(task => {
+                    const canRestart = task.status !== 'RUNNING';
+                    html += `
+                        <tr>
+                            <td class="truncate" title="${task.task_id}">${task.task_id}</td>
+                            <td class="truncate" title="${task.parse_task_id || '-'}">${task.parse_task_id || '-'}</td>
+                            <td class="truncate" title="${task.index_id || '-'}">${task.index_id || '-'}</td>
+                            <td>${formatStatus(task.status)}</td>
+                            <td>${task.progress || 0}%</td>
+                            <td>${formatDate(task.created_at)}</td>
+                            <td>${formatDate(task.completed_at)}</td>
+                            <td class="truncate" title="${task.error || '-'}">${truncateText(task.error)}</td>
+                            <td>
+                                <button class="action-btn restart" 
+                                        onclick="restartVectorTask('${task.task_id}')" 
+                                        ${!canRestart ? 'disabled' : ''}
+                                        title="${canRestart ? '重新执行任务' : '任务正在运行中'}">
+                                    重新执行
+                                </button>
+                            </td>
+                        </tr>
+                    `;
+                });
+                
+                tbody.innerHTML = html || '<tr><td colspan="9" style="text-align: center; color: #666;">暂无数据</td></tr>';
+                updatePagination('vector');
+            } catch (error) {
+                tbody.innerHTML = `<tr><td colspan="9" class="error">加载失败: ${error.message}</td></tr>`;
+            }
+        }
+        
+        // 加载对话会话
+        async function loadChatSessions() {
+            const limit = document.getElementById('chat-limit').value;
+            const page = document.getElementById('chat-page').value;
+            const offset = (page - 1) * limit;
+            
+            const tbody = document.getElementById('chat-tbody');
+            tbody.innerHTML = '<tr><td colspan="7" class="loading">加载中...</td></tr>';
+            
+            try {
+                const data = await apiCall(`/admin/chat-sessions?limit=${limit}&offset=${offset}`);
+                
+                pageData.chat.total = data.data.total;
+                document.getElementById('chat-total').textContent = data.data.total;
+                
+                let html = '';
+                data.data.items.forEach(session => {
+                    // 构建用户信息显示
+                    let userInfo = '-';
+                    if (session.user_info) {
+                        const info = session.user_info;
+                        userInfo = `${info.username || info.email || '未知用户'}`;
+                        if (info.email && info.username) {
+                            userInfo += ` (${info.email})`;
+                        }
+                    }
+                    
+                    html += `
+                        <tr>
+                            <td class="truncate" title="${session.session_id}">${session.session_id}</td>
+                            <td>${session.user_id}</td>
+                            <td class="truncate" title="${userInfo}">${truncateText(userInfo, 150)}</td>
+                            <td class="truncate" title="${session.index_ids ? session.index_ids.join(', ') : '-'}">${session.index_ids ? truncateText(session.index_ids.join(', ')) : '-'}</td>
+                            <td>${session.is_active ? '<span class="status completed">活跃</span>' : '<span class="status pending">非活跃</span>'}</td>
+                            <td>${formatDate(session.created_at)}</td>
+                            <td>${formatDate(session.last_activity)}</td>
+                            <td>
+                                <button class="action-btn reset" 
+                                        onclick="openResetSessionModal('${session.session_id}')" 
+                                        title="重置会话索引">
+                                    重置索引
+                                </button>
+                            </td>
+                        </tr>
+                    `;
+                });
+                
+                tbody.innerHTML = html || '<tr><td colspan="8" style="text-align: center; color: #666;">暂无数据</td></tr>';
+                updatePagination('chat');
+            } catch (error) {
+                tbody.innerHTML = `<tr><td colspan="8" class="error">加载失败: ${error.message}</td></tr>`;
+            }
+        }
+        
+        // 加载向量索引
+        async function loadVectorIndexes() {
+            const limit = document.getElementById('index-limit').value;
+            const page = document.getElementById('index-page').value;
+            const offset = (page - 1) * limit;
+            
+            const tbody = document.getElementById('index-tbody');
+            tbody.innerHTML = '<tr><td colspan="8" class="loading">加载中...</td></tr>';
+            
+            try {
+                const data = await apiCall(`/admin/vector-indexes?limit=${limit}&offset=${offset}`);
+                
+                pageData.index.total = data.data.total;
+                document.getElementById('index-total').textContent = data.data.total;
+                
+                let html = '';
+                data.data.items.forEach(index => {
+                    html += `
+                        <tr>
+                            <td class="truncate" title="${index.index_id}">${index.index_id}</td>
+                            <td class="truncate" title="${index.index_description || '-'}">${truncateText(index.index_description)}</td>
+                            <td class="truncate" title="${index.origin_file_path || '-'}">${truncateText(index.origin_file_path)}</td>
+                            <td>${index.document_count || 0}</td>
+                            <td>${index.node_count || 0}</td>
+                            <td>${index.vector_dimension || '-'}</td>
+                            <td>${formatDate(index.created_at)}</td>
+                            <td>
+                                <button class="action-btn edit" 
+                                        onclick="openEditIndexModal('${index.index_id}', '${(index.index_description || '').replace(/'/g, '\\\'')}')" 
+                                        title="编辑索引描述">
+                                    编辑
+                                </button>
+                                <button class="action-btn delete" 
+                                        onclick="openDeleteConfirmModal('${index.index_id}')" 
+                                        title="删除索引">
+                                    删除
+                                </button>
+                            </td>
+                        </tr>
+                    `;
+                });
+                
+                tbody.innerHTML = html || '<tr><td colspan="8" style="text-align: center; color: #666;">暂无数据</td></tr>';
+                updatePagination('index');
+            } catch (error) {
+                tbody.innerHTML = `<tr><td colspan="7" class="error">加载失败: ${error.message}</td></tr>`;
+            }
+        }
+        
+        // 更新分页按钮状态
+        function updatePagination(type) {
+            const page = parseInt(document.getElementById(`${type}-page`).value);
+            const limit = parseInt(document.getElementById(`${type}-limit`).value);
+            const total = pageData[type].total;
+            const maxPage = Math.ceil(total / limit);
+            
+            document.getElementById(`${type}-prev`).disabled = page <= 1;
+            document.getElementById(`${type}-next`).disabled = page >= maxPage;
+        }
+        
+        // 上一页
+        function prevPage(type) {
+            const pageInput = document.getElementById(`${type}-page`);
+            const currentPage = parseInt(pageInput.value);
+            if (currentPage > 1) {
+                pageInput.value = currentPage - 1;
+                switch(type) {
+                    case 'parse': loadParseTasks(); break;
+                    case 'vector': loadVectorTasks(); break;
+                    case 'chat': loadChatSessions(); break;
+                    case 'index': loadVectorIndexes(); break;
+                }
+            }
+        }
+        
+        // 下一页
+        function nextPage(type) {
+            const pageInput = document.getElementById(`${type}-page`);
+            const limit = parseInt(document.getElementById(`${type}-limit`).value);
+            const total = pageData[type].total;
+            const maxPage = Math.ceil(total / limit);
+            const currentPage = parseInt(pageInput.value);
+            
+            if (currentPage < maxPage) {
+                pageInput.value = currentPage + 1;
+                switch(type) {
+                    case 'parse': loadParseTasks(); break;
+                    case 'vector': loadVectorTasks(); break;
+                    case 'chat': loadChatSessions(); break;
+                    case 'index': loadVectorIndexes(); break;
+                }
+            }
+        }
+        
+        // 模态框操作
+        function openModal(modalId) {
+            const modal = document.getElementById(modalId);
+            modal.classList.add('show');
+        }
+        
+        function closeModal(modalId) {
+            const modal = document.getElementById(modalId);
+            modal.classList.remove('show');
+            // 清空表单
+            if (modalId === 'editIndexModal') {
+                document.getElementById('editIndexId').value = '';
+                document.getElementById('editIndexDescription').value = '';
+            } else if (modalId === 'deleteConfirmModal') {
+                document.getElementById('deleteIndexId').textContent = '';
+                document.getElementById('deleteConfirmText').value = '';
+                document.getElementById('confirmDeleteBtn').disabled = true;
+            } else if (modalId === 'resetSessionModal') {
+                document.getElementById('resetSessionId').value = '';
+                document.getElementById('indexCheckboxList').innerHTML = '';
+            }
+        }
+        
+        // 点击模态框外部关闭
+        window.onclick = function(event) {
+            if (event.target.classList.contains('modal')) {
+                event.target.classList.remove('show');
+            }
+        }
+        
+        // 通知消息
+        function showNotification(message, type = 'success') {
+            const notification = document.getElementById('notification');
+            notification.className = `alert alert-${type}`;
+            notification.textContent = message;
+            notification.style.display = 'block';
+            
+            setTimeout(() => {
+                notification.style.display = 'none';
+            }, 3000);
+        }
+        
+        // 重新执行解析任务
+        // 打开重新执行解析任务模态框
+        async function restartParseTask(taskId) {
+            try {
+                // 获取任务详情
+                const taskResponse = await fetch(`/tasks/parse/${taskId}`);
+                const taskData = await taskResponse.json();
+                
+                if (!taskData.file_path) {
+                    showNotification('无法获取任务文件路径', 'danger');
+                    return;
+                }
+                
+                // 填充模态框信息
+                document.getElementById('restartTaskId').textContent = taskId;
+                document.getElementById('restartFilePath').textContent = taskData.file_path;
+                
+                // 判断文件类型（文件还是目录）
+                const isDirectory = taskData.file_path.endsWith('/') || !taskData.file_path.includes('.');
+                document.getElementById('restartFileType').textContent = isDirectory ? '目录' : '文件';
+                
+                // 预填充当前配置
+                if (taskData.parser_type) {
+                    document.getElementById('restartParserType').value = taskData.parser_type;
+                }
+                
+                // 预填充配置参数
+                if (taskData.config) {
+                    const configWithoutParserType = { ...taskData.config };
+                    delete configWithoutParserType.parser_type; // 移除parser_type，因为它有单独的选择框
+                    
+                    if (Object.keys(configWithoutParserType).length > 0) {
+                        document.getElementById('restartTaskConfig').value = JSON.stringify(configWithoutParserType, null, 2);
+                    } else {
+                        document.getElementById('restartTaskConfig').value = '';
+                    }
+                } else {
+                    document.getElementById('restartTaskConfig').value = '';
+                }
+                
+                // 存储任务信息供后续使用
+                window.currentRestartTask = {
+                    taskId: taskId,
+                    filePath: taskData.file_path,
+                    isDirectory: isDirectory
+                };
+                
+                // 打开模态框
+                openModal('restartParseTaskModal');
+                
+            } catch (error) {
+                showNotification('获取任务信息失败: ' + error.message, 'danger');
+            }
+        }
+        
+        // 执行重新解析任务
+        async function executeRestartParseTask() {
+            if (!window.currentRestartTask) {
+                showNotification('任务信息丢失，请重新打开', 'danger');
+                return;
+            }
+            
+            const parserType = document.getElementById('restartParserType').value;
+            const configText = document.getElementById('restartTaskConfig').value;
+            
+            // 解析配置
+            let config = { parser_type: parserType };
+            if (configText.trim()) {
+                try {
+                    const userConfig = JSON.parse(configText);
+                    config = { ...config, ...userConfig };
+                } catch (error) {
+                    showNotification('配置JSON格式错误', 'danger');
+                    return;
+                }
+            }
+            
+            try {
+                let endpoint, body;
+                
+                if (window.currentRestartTask.isDirectory) {
+                    // 目录解析
+                    endpoint = '/parse/directory';
+                    body = JSON.stringify({
+                        directory_path: window.currentRestartTask.filePath,
+                        config: config
+                    });
+                } else {
+                    // 文件解析
+                    endpoint = '/parse/file';
+                    body = JSON.stringify({
+                        file_path: window.currentRestartTask.filePath,
+                        config: config
+                    });
+                }
+                
+                const response = await fetch(endpoint, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: body
+                });
+                
+                if (response.ok) {
+                    const result = await response.json();
+                    showNotification(`解析任务重新执行成功，新任务ID: ${result.task_id}`);
+                    closeModal('restartParseTaskModal');
+                    loadParseTasks();
+                    
+                    // 清理临时数据
+                    window.currentRestartTask = null;
+                } else {
+                    const error = await response.json();
+                    showNotification(error.detail || '重新执行失败', 'danger');
+                }
+            } catch (error) {
+                showNotification('网络错误: ' + error.message, 'danger');
+            }
+        }
+        
+        // 重新执行向量化任务
+        async function restartVectorTask(taskId) {
+            try {
+                // 获取向量化任务详情
+                const taskResponse = await fetch(`/tasks/vector-store/${taskId}`);
+                const taskData = await taskResponse.json();
+                
+                if (!taskData.parse_task_id) {
+                    showNotification('无法获取解析任务ID', 'danger');
+                    return;
+                }
+                
+                // 使用现有的向量化接口重新执行任务
+                const response = await fetch('/vector-store/build', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({
+                        parse_task_id: taskData.parse_task_id
+                    })
+                });
+                
+                if (response.ok) {
+                    showNotification('向量化任务重新执行成功');
+                    loadVectorTasks();
+                } else {
+                    const error = await response.json();
+                    showNotification(error.message || '重新执行失败', 'danger');
+                }
+            } catch (error) {
+                showNotification('网络错误: ' + error.message, 'danger');
+            }
+        }
+        
+        // 打开编辑索引模态框
+        function openEditIndexModal(indexId, description) {
+            document.getElementById('editIndexId').value = indexId;
+            document.getElementById('editIndexDescription').value = description;
+            openModal('editIndexModal');
+        }
+        
+        // 保存索引描述
+        async function saveIndexDescription() {
+            const indexId = document.getElementById('editIndexId').value;
+            const description = document.getElementById('editIndexDescription').value;
+            
+            try {
+                const formData = new FormData();
+                formData.append('description', description);
+                
+                const response = await fetch(`/admin/vector-indexes/${indexId}/description`, {
+                    method: 'PUT',
+                    body: formData
+                });
+                
+                if (response.ok) {
+                    showNotification('索引描述更新成功');
+                    closeModal('editIndexModal');
+                    loadVectorIndexes();
+                } else {
+                    const error = await response.json();
+                    showNotification(error.message || '更新失败', 'danger');
+                }
+            } catch (error) {
+                showNotification('网络错误: ' + error.message, 'danger');
+            }
+        }
+        
+        // 打开删除确认模态框
+        function openDeleteConfirmModal(indexId) {
+            document.getElementById('deleteIndexId').textContent = indexId;
+            openModal('deleteConfirmModal');
+        }
+        
+        // 监听删除确认输入
+        document.addEventListener('DOMContentLoaded', function() {
+            const deleteConfirmText = document.getElementById('deleteConfirmText');
+            const confirmDeleteBtn = document.getElementById('confirmDeleteBtn');
+            
+            deleteConfirmText.addEventListener('input', function() {
+                confirmDeleteBtn.disabled = this.value !== '确认删除';
+            });
+        });
+        
+        // 确认删除索引
+        async function confirmDeleteIndex() {
+            const indexId = document.getElementById('deleteIndexId').textContent;
+            
+            try {
+                const response = await fetch(`/vector-store/index/${indexId}`, {
+                    method: 'DELETE'
+                });
+                
+                if (response.ok) {
+                    showNotification('索引删除成功');
+                    closeModal('deleteConfirmModal');
+                    loadVectorIndexes();
+                } else {
+                    const error = await response.json();
+                    showNotification(error.message || '删除失败', 'danger');
+                }
+            } catch (error) {
+                showNotification('网络错误: ' + error.message, 'danger');
+            }
+        }
+        
+        // 打开重置会话索引模态框
+        async function openResetSessionModal(sessionId) {
+            document.getElementById('resetSessionId').value = sessionId;
+            
+            // 加载所有可用索引
+            try {
+                const response = await fetch('/admin/vector-indexes?limit=1000');
+                const result = await response.json();
+                
+                if (result.success) {
+                    const indexList = document.getElementById('indexCheckboxList');
+                    indexList.innerHTML = '';
+                    
+                    result.data.items.forEach(index => {
+                        const checkboxDiv = document.createElement('div');
+                        checkboxDiv.style.marginBottom = '8px';
+                        checkboxDiv.innerHTML = `
+                            <label style="display: flex; align-items: center; cursor: pointer;">
+                                <input type="checkbox" value="${index.index_id}" style="margin-right: 8px;">
+                                <div>
+                                    <strong>${index.index_id}</strong>
+                                    <div style="font-size: 12px; color: #666;">${index.index_description || '无描述'}</div>
+                                </div>
+                            </label>
+                        `;
+                        indexList.appendChild(checkboxDiv);
+                    });
+                } else {
+                    showNotification('加载索引列表失败', 'error');
+                }
+            } catch (error) {
+                console.error('Error loading indexes:', error);
+                showNotification('加载索引列表失败', 'error');
+            }
+            
+            openModal('resetSessionModal');
+        }
+        
+        // 重置会话索引
+        async function resetSessionIndex() {
+            const sessionId = document.getElementById('resetSessionId').value;
+            
+            // 获取选中的索引
+            const checkboxes = document.querySelectorAll('#indexCheckboxList input[type="checkbox"]:checked');
+            const selectedIndexIds = Array.from(checkboxes).map(cb => cb.value);
+            
+            if (selectedIndexIds.length === 0) {
+                showNotification('请至少选择一个索引', 'warning');
+                return;
+            }
+            
+            try {
+                const formData = new FormData();
+                selectedIndexIds.forEach(indexId => {
+                    formData.append('index_ids', indexId);
+                });
+                
+                const response = await fetch(`/admin/chat-sessions/${sessionId}/reset-index`, {
+                    method: 'POST',
+                    body: formData
+                });
+                
+                if (response.ok) {
+                    showNotification('会话索引重置成功');
+                    closeModal('resetSessionModal');
+                    loadChatSessions();
+                } else {
+                    const error = await response.json();
+                    showNotification(error.message || '重置失败', 'danger');
+                }
+            } catch (error) {
+                showNotification('网络错误: ' + error.message, 'danger');
+            }
+        }
+        
+        // 打开创建解析任务模态框
+        async function openCreateTaskModal() {
+            // 加载uploads目录下的文件列表
+            await loadUploadFiles();
+            openModal('createTaskModal');
+        }
+        
+        // 加载uploads目录下的文件（树形结构）
+        async function loadUploadFiles() {
+            try {
+                const response = await fetch('/admin/upload-files');
+                const result = await response.json();
+                
+                const container = document.getElementById('fileTreeContainer');
+                
+                if (result.success && result.data) {
+                    const tree = buildFileTree(result.data.files, result.data.directories);
+                    container.innerHTML = tree;
+                } else {
+                    container.innerHTML = '<div style="color: #666;">暂无文件</div>';
+                }
+            } catch (error) {
+                console.error('Error loading upload files:', error);
+                container.innerHTML = '<div style="color: #dc3545;">加载文件列表失败</div>';
+            }
+        }
+        
+        // 构建文件树HTML
+        function buildFileTree(files, directories) {
+            // 构建目录结构
+            const tree = {};
+            
+            // 添加目录
+            directories.forEach(dir => {
+                const parts = dir.relative_path.split('/');
+                let current = tree;
+                parts.forEach(part => {
+                    if (!current[part]) {
+                        current[part] = { type: 'directory', children: {}, path: dir.path };
+                    }
+                    current = current[part].children;
+                });
+            });
+            
+            // 添加文件
+            files.forEach(file => {
+                const parts = file.relative_path.split('/');
+                const fileName = parts.pop();
+                let current = tree;
+                
+                // 导航到文件所在目录
+                parts.forEach(part => {
+                    if (!current[part]) {
+                        current[part] = { type: 'directory', children: {} };
+                    }
+                    current = current[part].children;
+                });
+                
+                // 添加文件
+                current[fileName] = {
+                    type: 'file',
+                    path: file.path,
+                    size: file.size,
+                    name: file.name
+                };
+            });
+            
+            return renderTreeNode(tree, '');
+        }
+        
+        // 渲染树节点
+        function renderTreeNode(node, prefix) {
+            let html = '';
+            
+            Object.keys(node).sort().forEach(key => {
+                const item = node[key];
+                const itemId = 'tree_' + Math.random().toString(36).substr(2, 9);
+                
+                if (item.type === 'directory') {
+                    html += `
+                        <div style="margin-left: ${prefix.length * 20}px;">
+                            <div style="cursor: pointer; padding: 4px; display: flex; align-items: center; border-radius: 3px;" 
+                                 onmouseover="this.style.backgroundColor='#e3f2fd'"
+                                 onmouseout="this.style.backgroundColor='transparent'">
+                                <span id="${itemId}_icon" style="margin-right: 6px; font-family: monospace;" onclick="toggleDirectory('${itemId}')">▶</span>
+                                <span style="color: #007bff; font-weight: 500;" onclick="selectFile('${item.path}', '${key}', 'directory')">📁 ${key}</span>
+                            </div>
+                            <div id="${itemId}_content" style="display: none;">
+                                ${renderTreeNode(item.children, prefix + '  ')}
+                            </div>
+                        </div>
+                    `;
+                } else {
+                    const sizeText = formatFileSize(item.size);
+                    html += `
+                        <div style="margin-left: ${(prefix.length + 2) * 20}px; padding: 2px 4px; cursor: pointer; border-radius: 3px;" 
+                             onclick="selectFile('${item.path}', '${item.name}', 'file')"
+                             onmouseover="this.style.backgroundColor='#e3f2fd'"
+                             onmouseout="this.style.backgroundColor='transparent'">
+                            <span style="color: #28a745;">📄 ${key}</span>
+                            <span style="color: #666; font-size: 12px; margin-left: 8px;">(${sizeText})</span>
+                        </div>
+                    `;
+                }
+            });
+            
+            return html;
+        }
+        
+        // 切换目录展开/收起
+        function toggleDirectory(itemId) {
+            const content = document.getElementById(itemId + '_content');
+            const icon = document.getElementById(itemId + '_icon');
+            
+            if (content.style.display === 'none') {
+                content.style.display = 'block';
+                icon.textContent = '▼';
+            } else {
+                content.style.display = 'none';
+                icon.textContent = '▶';
+            }
+        }
+        
+        // 选择文件或目录
+        function selectFile(filePath, fileName, type) {
+            document.getElementById('selectedFilePath').value = filePath;
+            document.getElementById('selectedType').value = type;
+            document.getElementById('selectedFileName').textContent = fileName;
+            
+            const typeDisplay = document.getElementById('selectedTypeDisplay');
+            typeDisplay.textContent = type === 'file' ? '(文件)' : '(目录)';
+            
+            document.getElementById('selectedFileDisplay').style.display = 'block';
+            
+            // 清除之前的选中状态
+            document.querySelectorAll('#fileTreeContainer [data-selected="true"]').forEach(el => {
+                el.style.backgroundColor = 'transparent';
+                el.removeAttribute('data-selected');
+            });
+            
+            // 设置当前选中状态
+            event.target.style.backgroundColor = '#d4edda';
+            event.target.setAttribute('data-selected', 'true');
+        }
+        
+        // 格式化文件大小
+        function formatFileSize(bytes) {
+            if (bytes === 0) return '0 B';
+            const k = 1024;
+            const sizes = ['B', 'KB', 'MB', 'GB'];
+            const i = Math.floor(Math.log(bytes) / Math.log(k));
+            return parseFloat((bytes / Math.pow(k, i)).toFixed(1)) + ' ' + sizes[i];
+        }
+        
+
+        
+        // 创建解析任务
+        async function createParseTask() {
+            const selectedFilePath = document.getElementById('selectedFilePath').value;
+            const selectedType = document.getElementById('selectedType').value;
+            const parserType = document.getElementById('parserType').value;
+            const configText = document.getElementById('taskConfig').value;
+            
+            // 验证输入
+            if (!selectedFilePath) {
+                showNotification('请从文件树中选择要解析的文件或目录', 'warning');
+                return;
+            }
+            
+            // 解析配置
+            let config = { parser_type: parserType };
+            if (configText.trim()) {
+                try {
+                    const userConfig = JSON.parse(configText);
+                    config = { ...config, ...userConfig };
+                } catch (error) {
+                    showNotification('配置JSON格式错误', 'danger');
+                    return;
+                }
+            }
+            
+            try {
+                let endpoint, body;
+                
+                if (selectedType === 'file') {
+                    // 单文件解析
+                    endpoint = '/parse/file';
+                    body = JSON.stringify({
+                        file_path: selectedFilePath,
+                        config: config
+                    });
+                } else {
+                    // 目录解析
+                    endpoint = '/parse/directory';
+                    body = JSON.stringify({
+                        directory_path: selectedFilePath,
+                        config: config
+                    });
+                }
+                
+                const response = await fetch(endpoint, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: body
+                });
+                
+                if (response.ok) {
+                    const result = await response.json();
+                    showNotification(`解析任务创建成功，任务ID: ${result.task_id}`);
+                    closeModal('createTaskModal');
+                    loadParseTasks();
+                    
+                    // 重置表单
+                    document.getElementById('selectedFilePath').value = '';
+                    document.getElementById('selectedType').value = '';
+                    document.getElementById('selectedFileDisplay').style.display = 'none';
+                    document.getElementById('parserType').value = 'docling';
+                    document.getElementById('taskConfig').value = '';
+                    
+                    // 清除文件选择状态
+                    document.querySelectorAll('#fileTreeContainer [data-selected="true"]').forEach(el => {
+                        el.style.backgroundColor = 'transparent';
+                        el.removeAttribute('data-selected');
+                    });
+                } else {
+                    const error = await response.json();
+                    showNotification(error.detail || '创建任务失败', 'danger');
+                }
+            } catch (error) {
+                showNotification('网络错误: ' + error.message, 'danger');
+            }
+        }
+        
+        // 解析任务文件名过滤功能
+        function filterParseTasks() {
+            const filterText = document.getElementById('parse-filename-filter').value.toLowerCase();
+            const tbody = document.getElementById('parse-tbody');
+            const rows = tbody.getElementsByTagName('tr');
+            
+            for (let i = 0; i < rows.length; i++) {
+                const row = rows[i];
+                const filePathCell = row.cells[1]; // 文件路径列
+                
+                if (filePathCell) {
+                    const filePath = filePathCell.textContent || filePathCell.innerText;
+                    if (filePath.toLowerCase().includes(filterText)) {
+                        row.style.display = '';
+                    } else {
+                        row.style.display = 'none';
+                    }
+                }
+            }
+        }
+        
+        // 切换子任务显示/隐藏
+        function toggleSubTasks(parentTaskId) {
+            const subTasks = document.querySelectorAll(`#subtask-${parentTaskId}`);
+            const toggleBtn = document.getElementById(`toggle-${parentTaskId}`);
+            
+            if (subTasks.length > 0) {
+                const isHidden = subTasks[0].style.display === 'none';
+                
+                subTasks.forEach(subTask => {
+                    subTask.style.display = isHidden ? '' : 'none';
+                });
+                
+                if (toggleBtn) {
+                    const childCount = subTasks.length;
+                    toggleBtn.textContent = isHidden ? `[-] ${childCount}个子任务` : `[+] ${childCount}个子任务`;
+                }
+            }
+        }
+        
+        // 打开创建向量化任务模态框
+        async function openCreateVectorTaskModal() {
+            try {
+                // 加载已完成的解析任务
+                const data = await apiCall('/admin/parse-tasks?limit=1000&offset=0');
+                const completedTasks = data.data.items.filter(task => task.status === 'COMPLETED');
+                
+                const select = document.getElementById('vectorParseTaskId');
+                select.innerHTML = '<option value="">请选择已完成的解析任务...</option>';
+                
+                completedTasks.forEach(task => {
+                    const option = document.createElement('option');
+                    option.value = task.task_id;
+                    option.textContent = `${task.task_id} - ${task.file_path || '未知路径'}`;
+                    option.dataset.filePath = task.file_path || '';
+                    option.dataset.completedAt = task.completed_at || '';
+                    select.appendChild(option);
+                });
+                
+                // 添加选择变化事件
+                select.onchange = function() {
+                    const selectedOption = this.options[this.selectedIndex];
+                    const infoDiv = document.getElementById('selectedParseTaskInfo');
+                    
+                    if (this.value) {
+                        document.getElementById('selectedParseTaskIdDisplay').textContent = this.value;
+                        document.getElementById('selectedParseTaskPath').textContent = selectedOption.dataset.filePath;
+                        document.getElementById('selectedParseTaskTime').textContent = formatDate(selectedOption.dataset.completedAt);
+                        infoDiv.style.display = 'block';
+                    } else {
+                        infoDiv.style.display = 'none';
+                    }
+                };
+                
+                openModal('createVectorTaskModal');
+            } catch (error) {
+                showNotification('加载解析任务失败: ' + error.message, 'danger');
+            }
+        }
+        
+        // 创建向量化任务
+        async function createVectorTask() {
+            const parseTaskId = document.getElementById('vectorParseTaskId').value;
+            
+            if (!parseTaskId) {
+                showNotification('请选择一个解析任务', 'warning');
+                return;
+            }
+            
+            try {
+                const response = await fetch('/vector-store/build', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({
+                        parse_task_id: parseTaskId
+                    })
+                });
+                
+                if (response.ok) {
+                    const result = await response.json();
+                    showNotification(`向量化任务创建成功，任务ID: ${result.task_id}`);
+                    closeModal('createVectorTaskModal');
+                    loadVectorTasks();
+                    
+                    // 重置表单
+                    document.getElementById('vectorParseTaskId').value = '';
+                    document.getElementById('selectedParseTaskInfo').style.display = 'none';
+                } else {
+                    const error = await response.json();
+                    showNotification(error.detail || '创建向量化任务失败', 'danger');
+                }
+            } catch (error) {
+                showNotification('网络错误: ' + error.message, 'danger');
+            }
+        }
+        
+        // 页面加载完成后初始化
+        document.addEventListener('DOMContentLoaded', function() {
+            loadDashboard();
+        });
+    </script>
+</body>
+</html>

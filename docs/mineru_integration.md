@@ -45,10 +45,13 @@ curl -X POST "http://localhost:8001/parse/upload" \
 
 **端点**: `POST /parse/file`
 
-**参数**:
-- `file_path`: 文件路径
-- `parser_type`: 解析器类型（可选）
-- `config`: 解析配置（可选）
+**请求体参数**:
+- `file_path`: 文件路径（必需）
+- `config`: 解析配置对象（可选）
+  - `parser_type`: 解析器类型（可选）
+  - `ocr_enabled`: 是否启用OCR（可选）
+  - `max_workers`: MinerU并发数（可选）
+  - 其他配置参数...
 
 **示例**:
 ```bash
@@ -56,10 +59,31 @@ curl -X POST "http://localhost:8001/parse/file" \
   -H "Content-Type: application/json" \
   -d '{
     "file_path": "/path/to/document.pdf",
-    "parser_type": "mineru",
     "config": {
-      "save_to_file": true,
-      "max_workers": 1
+      "parser_type": "mineru",
+      "max_workers": 1,
+      "ocr_enabled": true
+    }
+  }'
+```
+
+### 2.1 目录解析
+
+**端点**: `POST /parse/directory`
+
+**请求体参数**:
+- `directory_path`: 目录路径（必需）
+- `config`: 解析配置对象（可选）
+
+**示例**:
+```bash
+curl -X POST "http://localhost:8001/parse/directory" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "directory_path": "/path/to/documents/",
+    "config": {
+      "parser_type": "docling",
+      "ocr_enabled": false
     }
   }'
 ```
@@ -126,9 +150,11 @@ curl -X POST "http://localhost:8001/parse/file" \
 ```python
 class ParseConfig(BaseModel):
     parser_type: Optional[str] = None  # "docling" 或 "mineru"
-    max_workers: Optional[int] = 1     # MinerU并发数
-    save_to_file: Optional[bool] = False  # 是否保存到文件
-    ocr_enabled: Optional[bool] = True    # 是否启用OCR（Docling）
+    ocr_enabled: Optional[bool] = False  # 是否启用OCR
+    ocr_languages: Optional[List[str]] = []  # OCR语言
+    extract_tables: Optional[bool] = True  # 是否提取表格
+    extract_images: Optional[bool] = True  # 是否提取图片信息
+    max_workers: Optional[int] = None  # MinerU解析器的并发数量（仅对MinerU有效）
 ```
 
 ### 环境配置
@@ -150,16 +176,18 @@ MINERU_MAX_WORKERS = 1  # MinerU最大并发数
 import requests
 import time
 
-# 1. 上传文件解析
-with open('document.pdf', 'rb') as f:
-    response = requests.post(
-        'http://localhost:8001/parse/upload',
-        files={'file': f},
-        data={
+# 1. 直接文件路径解析
+response = requests.post(
+    'http://localhost:8001/parse/file',
+    json={
+        'file_path': '/path/to/document.pdf',
+        'config': {
             'parser_type': 'mineru',
-            'config': '{"save_to_file": true}'
+            'max_workers': 1,
+            'ocr_enabled': True
         }
-    )
+    }
+)
 
 task_id = response.json()['task_id']
 print(f"任务ID: {task_id}")
@@ -193,16 +221,21 @@ else:
 ### JavaScript客户端示例
 
 ```javascript
-// 上传文件解析
-async function parseDocument(file) {
-    const formData = new FormData();
-    formData.append('file', file);
-    formData.append('parser_type', 'mineru');
-    formData.append('config', JSON.stringify({save_to_file: true}));
-    
-    const response = await fetch('/parse/upload', {
+// 文件路径解析
+async function parseDocument(filePath) {
+    const response = await fetch('/parse/file', {
         method: 'POST',
-        body: formData
+        headers: {
+            'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+            file_path: filePath,
+            config: {
+                parser_type: 'mineru',
+                max_workers: 1,
+                ocr_enabled: true
+            }
+        })
     });
     
     const result = await response.json();

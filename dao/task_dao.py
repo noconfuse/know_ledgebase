@@ -10,6 +10,7 @@ from sqlalchemy.orm import Session, joinedload
 from sqlalchemy.exc import SQLAlchemyError
 from datetime import datetime
 
+from models.parse_task import TaskStatus
 from models.task_models import ParseTask, VectorStoreTask
 from models.database import get_db
 
@@ -159,6 +160,60 @@ class TaskDAO:
         except SQLAlchemyError as e:
             logger.error(f"获取所有解析任务失败: {e}")
             return []
+        finally:
+            if not self.db:
+                db.close()
+    
+    def get_parse_task_by_file_path(self, file_path: str) -> Optional[ParseTask]:
+        """根据文件路径获取解析任务"""
+        try:
+            db = self._get_session()
+            task = (
+                db.query(ParseTask)
+                .options(joinedload(ParseTask.subtasks))
+                .filter(ParseTask.file_path == file_path)
+                .first()
+            )
+            return task
+        except SQLAlchemyError as e:
+            logger.error(f"根据文件路径获取解析任务失败: {e}")
+            return None
+        finally:
+            if not self.db:
+                db.close()
+    
+    def reset_parse_task_status(self, task_id: str) -> bool:
+        """重置解析任务状态为PENDING"""
+        try:
+            db = self._get_session()
+            
+            task = db.query(ParseTask).filter(ParseTask.task_id == task_id).first()
+            if not task:
+                logger.warning(f"解析任务不存在: {task_id}")
+                return False
+            
+            # 重置任务状态
+            task.status = TaskStatus.PENDING
+            task.progress = 0
+            task.current_stage = None
+            task.stage_details = {}
+            task.started_at = None
+            task.completed_at = None
+            task.result = None
+            task.error = None
+            task.processing_logs = []
+            task.updated_at = datetime.utcnow()
+            
+            db.commit()
+            
+            logger.info(f"重置解析任务状态成功: {task_id}")
+            return True
+            
+        except SQLAlchemyError as e:
+            logger.error(f"重置解析任务状态失败: {e}")
+            if not self.db:
+                db.rollback()
+            return False
         finally:
             if not self.db:
                 db.close()
@@ -354,3 +409,41 @@ class TaskDAO:
         finally:
             if not self.db:
                 db.close()
+    
+    # ==================== 管理界面需要的方法 ====================
+    
+    def get_parse_tasks_count(self, status: str = None) -> int:
+        """获取解析任务总数"""
+        try:
+            db = self._get_session()
+            query = db.query(ParseTask)
+            if status:
+                query = query.filter(ParseTask.status == status)
+            count = query.count()
+            return count
+        except SQLAlchemyError as e:
+            logger.error(f"获取解析任务总数失败: {e}")
+            return 0
+        finally:
+            if not self.db:
+                db.close()
+    
+    def get_vector_tasks_count(self, status: str = None) -> int:
+        """获取向量化任务总数"""
+        try:
+            db = self._get_session()
+            query = db.query(VectorStoreTask)
+            if status:
+                query = query.filter(VectorStoreTask.status == status)
+            count = query.count()
+            return count
+        except SQLAlchemyError as e:
+            logger.error(f"获取向量化任务总数失败: {e}")
+            return 0
+        finally:
+            if not self.db:
+                db.close()
+    
+    def get_all_vector_store_tasks(self, limit: int = 100, offset: int = 0) -> List[VectorStoreTask]:
+        """获取所有向量化任务（重定向到 list_vector_store_tasks 以避免重复实现）"""
+        return self.list_vector_store_tasks(limit=limit, offset=offset)

@@ -15,7 +15,7 @@ from llama_index.core import Document
 from models.parse_task import TaskStatus
 from models.task_models import ParseTask
 from utils.logging_config import get_logger
-from utils.document_utils import build_content_list_from_markdown, MarkdownFileExporter, JsonFileExporter, extract_tables, truncate_filename
+from utils.document_utils import truncate_filename
 from services.base_document_processor import BaseDocumentProcessor
 
 logger = get_logger(__name__)
@@ -30,7 +30,7 @@ class DocumentDoclingProcessor(BaseDocumentProcessor):
             r"^(第[一二三四五六七八九十\-\d\s]*章)",
             r"^(第[一二三四五六七八九十\-\d\s]*条)", # 第一条
             r"^(第[\d\s]*节)",
-            r"^([一二三四五六七八九十]+)\s*",
+            r"^([一二三四五六七八九十]+)\s*[、\s]", 
         ]
         self.CHINESE_PUNCTUATION = {'，', '。', '；', '：', '？', '！', '"', '"', '、', '《', '》'}
         logger.info("DocumentPostProcessor初始化完成")
@@ -184,6 +184,39 @@ class DocumentDoclingProcessor(BaseDocumentProcessor):
                 return i, match.group(1)
         return -1, ""
     
+    def _is_numeric_title(self, text: str) -> bool:
+        """检测是否为数字开头或结尾的标题
+        
+        检测规则：
+        1. 以"01"、"02"等数字开头的文本
+        2. 以"01"、"02"等数字结尾的文本
+        3. 必须是非句子文本（不包含中文标点符号或长度较短）
+        
+        Args:
+            text: 待检测的文本
+            
+        Returns:
+            bool: True表示是数字标题
+        """
+        if not text or not text.strip():
+            return False
+        
+        text = text.strip()
+        
+        # 如果是句子（包含中文标点符号且长度大于20），则不是标题
+        if self.has_chinese_punctuation(text) and len(text) > 20:
+            return False
+        
+        # 检测数字开头模式：01、02、03等
+        if re.match(r'^\d{2,}', text):
+            return True
+        
+        # 检测数字结尾模式：以01、02、03等结尾
+        if re.search(r'\d{2,}$', text):
+            return True
+        
+        return False
+    
     
     def process_document(self, docling_document: DoclingDocument, output_dir: str, file_name: str, enhanced: bool = True) -> Dict[str, Any]:
         """处理Docling的Document对象，并导出JSON、Markdown和中间content_list.json
@@ -301,6 +334,10 @@ class DocumentDoclingProcessor(BaseDocumentProcessor):
                         elif 'page' in prov:
                             page_idx = prov['page']
                             break
+                
+                marker = None
+                if 'marker' in resolved_item:
+                    marker = resolved_item['marker'] # 获取标记
 
                 if item_type_key == 'texts':
                     text_content = resolved_item.get("text", "").strip()
@@ -309,7 +346,8 @@ class DocumentDoclingProcessor(BaseDocumentProcessor):
                             "text": text_content,
                             "level": resolved_item.get("level", 0),
                             "type": "text",
-                            "page_idx": page_idx
+                            "page_idx": page_idx,
+                            "marker": marker
                         }
                         content_list.append(content_item)
                         
@@ -318,7 +356,8 @@ class DocumentDoclingProcessor(BaseDocumentProcessor):
                         "text": f"[图片: {resolved_item.get('self_ref', 'unknown')}]",
                         "level": resolved_item.get("level", 0),
                         "type": "image",
-                        "page_idx": page_idx
+                        "page_idx": page_idx,
+                        "marker": marker
                     }
                     content_list.append(content_item)
                     
@@ -334,7 +373,8 @@ class DocumentDoclingProcessor(BaseDocumentProcessor):
                         "text": table_text,
                         "level": resolved_item.get("level", 0),
                         "type": "table",
-                        "page_idx": page_idx
+                        "page_idx": page_idx,
+                        "marker": marker
                     }
                     content_list.append(content_item)
 
@@ -379,6 +419,7 @@ class DocumentDoclingProcessor(BaseDocumentProcessor):
                     # 先不处理
                     continue
                 elif item["type"] == "table":
+                    # TODO 表格如何处理
                     enhanced_lines.append(item.get('text', ''))
                 continue
                 
@@ -403,11 +444,26 @@ class DocumentDoclingProcessor(BaseDocumentProcessor):
                     continue  # 跳过目录内容
                 skip_next = False  # 如果不是目录内容，重置标记
             
+            # 如果marker存在，直接作为普通文本处理
+            if item.get('marker'):
+                marker = f"{item.get('marker')} "
+                enhanced_lines.append(f"{marker}{text}")
+                enhanced_lines.append("")  # 添加空行分隔
+                continue
+            
             # 检测模式
             heading = text[:10]
             pattern_idx, no = self._detect_pattern(heading)
+            
+            # 检测是否为数字标题
+            is_numeric_title = self._is_numeric_title(text) and item.get('level') and item.get('level') != 0
            
-            if pattern_idx >= 0:  # 匹配到模式
+            if pattern_idx >= 0 or is_numeric_title:  # 匹配到传统模式或数字标题模式
+                # 为数字标题分配一个特殊的pattern_idx
+                if is_numeric_title and pattern_idx < 0:
+                    pattern_idx = len(self.hierarchy_patterns)  # 使用一个不冲突的索引
+                    no = text  # 数字标题使用整个文本作为标题部分
+                
                 if pattern_idx in pattern_to_level:
                     # 已知模式，使用已分配的level
                     curr_level = pattern_to_level[pattern_idx]

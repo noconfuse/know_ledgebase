@@ -176,6 +176,37 @@ class ChatDAO:
                     pass
     
     @staticmethod
+    def update_session_indexes(session_id: str, index_ids: List[str]) -> bool:
+        """更新会话的索引绑定"""
+        db_gen = None
+        db = None
+        try:
+            db_gen = get_db()
+            db = next(db_gen)
+            session = db.query(ChatSession).filter(
+                ChatSession.session_id == session_id
+            ).first()
+            
+            if session:
+                session.index_ids = index_ids
+                session.last_activity = datetime.utcnow()
+                db.commit()
+                logger.info(f"Updated session {session_id} indexes to: {index_ids}")
+                return True
+            return False
+        except Exception as e:
+            if db:
+                db.rollback()
+            logger.error(f"Failed to update session indexes {session_id}: {e}")
+            return False
+        finally:
+            if db_gen:
+                try:
+                    next(db_gen)
+                except StopIteration:
+                    pass
+    
+    @staticmethod
     def get_session_by_user(session_id: str, user_id: str) -> Optional[ChatSession]:
         """根据会话ID和用户ID获取会话（确保用户只能访问自己的会话）"""
         db_gen = None
@@ -297,7 +328,7 @@ class ChatDAO:
                     pass
     
     @staticmethod
-    def get_user_sessions(user_id: str = None, limit: int = None) -> List[ChatSession]:
+    def get_user_sessions(user_id: str = None, limit: int = None, offset: int = 0) -> List[ChatSession]:
         """获取用户会话"""
         db_gen = None
         db = None
@@ -315,10 +346,16 @@ class ChatDAO:
             if user_id:
                 query = query.filter(ChatSession.user_id == user_id)
             
+            # 先排序，再应用分页
+            query = query.order_by(desc(ChatSession.last_activity))
+            
+            if offset > 0:
+                query = query.offset(offset)
+            
             if limit:
                 query = query.limit(limit)
                 
-            sessions = query.order_by(desc(ChatSession.last_activity)).all()
+            sessions = query.all()
             # 从会话中分离所有对象，避免Session绑定问题
             for session in sessions:
                 db.expunge(session)
@@ -328,6 +365,77 @@ class ChatDAO:
                 db.rollback()
             logger.error(f"Error getting user sessions: {e}")
             return []
+        finally:
+            if db_gen:
+                try:
+                    next(db_gen)
+                except StopIteration:
+                    pass
+    
+    @staticmethod
+    def get_all_sessions(limit: int = None, offset: int = 0) -> List[ChatSession]:
+        """获取所有会话（管理界面用）"""
+        db_gen = None
+        db = None
+        try:
+            db_gen = get_db()
+            db = next(db_gen)
+            query = db.query(ChatSession).filter(
+                ChatSession.soft_deleted_at.is_(None)
+            )
+            
+            # 先排序，再应用分页
+            query = query.order_by(desc(ChatSession.last_activity))
+            
+            if offset > 0:
+                query = query.offset(offset)
+            
+            if limit:
+                query = query.limit(limit)
+                
+            sessions = query.all()
+            # 从会话中分离所有对象，避免Session绑定问题
+            for session in sessions:
+                db.expunge(session)
+            return sessions
+        except Exception as e:
+            if db:
+                db.rollback()
+            logger.error(f"Error getting all sessions: {e}")
+            return []
+        finally:
+            if db_gen:
+                try:
+                    next(db_gen)
+                except StopIteration:
+                    pass
+    
+    @staticmethod
+    def get_sessions_count(user_id: str = None) -> int:
+        """获取会话总数"""
+        db_gen = None
+        db = None
+        try:
+            db_gen = get_db()
+            db = next(db_gen)
+            query = db.query(ChatSession).filter(
+                ChatSession.soft_deleted_at.is_(None)
+            )
+            
+            if user_id:
+                query = query.filter(
+                    and_(
+                        ChatSession.user_id == user_id,
+                        ChatSession.is_active == True
+                    )
+                )
+            
+            return query.count()
+        except Exception as e:
+            if db:
+                db.rollback()
+            logger.error(f"Error getting sessions count: {e}")
+            return 0
         finally:
             if db_gen:
                 try:

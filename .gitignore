@@ -9,6 +9,7 @@ uploads
 logs
 ouputs
 vector_stores
+storage
 outputs
 models_dir
 cache

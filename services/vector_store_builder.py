@@ -7,24 +7,15 @@ import time
 from typing import Dict, List, Optional, Any, Tuple
 from pathlib import Path
 import logging
-from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime
 
-from llama_index.core import Document, VectorStoreIndex, StorageContext
-from llama_index.core.node_parser import SentenceSplitter, HTMLNodeParser
-from llama_index.core.schema import BaseNode, TextNode
-from llama_index.core.node_parser.interface import NodeParser
-from common.custom_markdown_node_parser import (
-    CustomMarkdownNodeParser as MarkdownNodeParser,
-)
+from llama_index.core import Document
+from llama_index.core.node_parser import SentenceSplitter, HTMLNodeParser, MarkdownNodeParser
 from llama_index.node_parser.docling import DoclingNodeParser
-from services.smart_metadata_extractor import SmartMetadataExtractor
+from services.document_level_metadata_extractor import DocumentLevelMetadataExtractor
+from services.chunk_level_metadata_extractor import ChunkLevelMetadataExtractor
 from llama_index.core.ingestion import IngestionPipeline
-from llama_index.vector_stores.faiss import FaissVectorStore
-from llama_index.vector_stores.postgres import PGVectorStore
-from llama_index.embeddings.huggingface import HuggingFaceEmbedding
-from llama_index.llms.huggingface import HuggingFaceLLM
-from llama_index.llms.openai_like import OpenAILike
+
 
 # 使用已导入的SessionLocal
 from dao.index_dao import IndexDAO
@@ -41,63 +32,6 @@ from services.model_client_factory import ModelClientFactory
 
 logger = logging.getLogger(__name__)
 
-
-class DocumentPreservingTransformer(NodeParser):
-    """自定义转换器，保留原始文档节点的同时创建切分节点"""
-    
-    def __init__(self, node_parser, **kwargs):
-        super().__init__(**kwargs)
-        self._node_parser = node_parser
-    
-    def _parse_nodes(self, nodes, show_progress=False, **kwargs):
-        """解析节点，同时保留原始文档和创建切分节点"""
-        result_nodes = []
-        
-        for node in nodes:
-            if isinstance(node, Document):
-                # 1. 创建原始文档节点
-                original_node = TextNode(
-                    text=node.text,
-                    metadata={
-                        **node.metadata,
-                        "node_type": "original_document",
-                        "is_complete_document": True
-                    }
-                )
-                result_nodes.append(original_node)
-                
-                # 2. 创建切分节点
-                if isinstance(self._node_parser, list):
-                    # 如果是多个解析器，依次应用
-                    current_nodes = [node]
-                    for parser in self._node_parser:
-                        if hasattr(parser, '_parse_nodes'):
-                            current_nodes = parser._parse_nodes(current_nodes, show_progress=show_progress, **kwargs)
-                        elif hasattr(parser, 'get_nodes_from_documents'):
-                            # 对于某些解析器，使用get_nodes_from_documents方法
-                            current_nodes = parser.get_nodes_from_documents(current_nodes, show_progress=show_progress)
-                else:
-                    # 单个解析器
-                    if hasattr(self._node_parser, '_parse_nodes'):
-                        current_nodes = self._node_parser._parse_nodes([node], show_progress=show_progress, **kwargs)
-                    elif hasattr(self._node_parser, 'get_nodes_from_documents'):
-                        current_nodes = self._node_parser.get_nodes_from_documents([node], show_progress=show_progress)
-                
-                # 为切分节点添加标记并继承原始文档的metadata
-                for chunk_node in current_nodes:
-                    if hasattr(chunk_node, 'metadata'):
-                        # 继承原始文档的所有metadata
-                        chunk_node.metadata.update(node.metadata)
-                        # 添加切分节点特有的标记
-                        chunk_node.metadata["node_type"] = "chunk"
-                        chunk_node.metadata["is_complete_document"] = False
-                
-                result_nodes.extend(current_nodes)
-            else:
-                # 如果输入已经是节点，直接处理
-                result_nodes.append(node)
-        
-        return result_nodes
 
 
 class VectorStoreBuilder:
@@ -263,24 +197,21 @@ class VectorStoreBuilder:
 
             # 3. 设置提取器
             task.progress = 30
-            extractors = [
-                SmartMetadataExtractor(
-                    llm=self.llm,
-                    min_chunk_size_for_extraction=task.config.get(
-                        "min_chunk_size_for_extraction", 100
-                    ),
-                    min_chunk_size_for_summary=task.config.get(
-                        "min_chunk_size_for_summary", 512
-                    ),
-                    min_chunk_size_for_qa=task.config.get(
-                        "min_chunk_size_for_qa", 1024
-                    ),
-                    max_keywords=task.config.get("max_keywords", 5),
-                    enable_persistent_cache=task.config.get("enable_persistent_cache", True),
-                    cache_dir=task.config.get("cache_dir", "cache/metadata"),
-                    # TODO num_questions=task.config.get("num_questions", 2),
-                )
-            ]
+            # 文档级元数据提取器（在切分前提取）
+            document_extractor = DocumentLevelMetadataExtractor(
+                llm=self.llm,
+                enable_persistent_cache=task.config.get("enable_persistent_cache", True),
+                cache_dir=task.config.get("cache_dir", "cache/metadata"),
+            )
+            
+            # chunk级元数据提取器（在切分后提取）
+            chunk_extractor = ChunkLevelMetadataExtractor(
+                llm=self.llm,
+                min_chunk_size_for_extraction=task.config.get(
+                    "min_chunk_size_for_extraction", 20 # 小于20没有意义了
+                ),
+                max_keywords=task.config.get("max_keywords", 6),
+            )
 
             # 4. 为每种文件类型创建专用处理管道
             task.progress = 40
@@ -291,142 +222,74 @@ class VectorStoreBuilder:
 
                 # 获取适合该文件类型的节点解析器
                 logger.info(f"Getting node parser for file type: {file_type}")
-                node_parsers = self._get_node_parser_for_file_type(
-                    file_type, task.config
-                )
-
-                # 确保node_parsers是列表格式
-                if not isinstance(node_parsers, list):
-                    node_parsers = [node_parsers]
-
-                logger.info(
-                    f"Node parsers configured: {[type(parser).__name__ for parser in node_parsers]}"
-                )
-                logger.info(
-                    f"Extractors configured: {[type(extractor).__name__ for extractor in extractors]}"
-                )
-                logger.info(f"Embed model: {type(self.embed_model).__name__}")
-
-                # 创建该文件类型的处理管道
-                logger.info(f"Creating ingestion pipeline for {file_type}")
-                pipeline = IngestionPipeline(
-                    transformations=[*node_parsers, *extractors, self.embed_model]
-                )
-
-                start_time = time.time()
-                logger.info(
-                    f"Starting pipeline processing for {len(type_docs)} {file_type} documents"
-                )
-
+                
+                # 首先应用文档级元数据提取器获取文档类型
+                logger.info("Extracting document-level metadata to determine document category")
+                doc_metadata_list = await document_extractor.aextract(type_docs)
+                
+                # 处理每个文档，根据其类型选择合适的解析器
+                processed_docs = []
+                for i, doc in enumerate(type_docs):
+                    # 获取文档类型
+                    doc_metadata = doc_metadata_list[i] if i < len(doc_metadata_list) else {}
+                    document_category = doc_metadata.get('document_category', 'general_document')
+                    
+                    # 将元数据添加到文档中
+                    for key, value in doc_metadata.items():
+                        doc.metadata[key] = value
+                    
+                    # 获取适合该文档类型的节点解析器
+                    logger.info(f"Document {i+1}/{len(type_docs)} classified as: {document_category}")
+                    node_parsers = self._get_node_parser_for_file_type(
+                        file_type, task.config, document_category
+                    )
+                    
+                    # 确保node_parsers是列表格式
+                    if not isinstance(node_parsers, list):
+                        node_parsers = [node_parsers]
+                    
+                    # 创建该文档的处理管道
+                    doc_pipeline = IngestionPipeline(
+                        transformations=[*node_parsers, chunk_extractor, self.embed_model]
+                    )
+                    
+                    # 处理单个文档
+                    try:
+                        # 逐个执行transformation步骤
+                        current_doc = [doc]  # 单文档列表
+                        for step_idx, transformation in enumerate(doc_pipeline.transformations):
+                            if hasattr(transformation, "transform"):
+                                current_doc = transformation.transform(current_doc)
+                            elif hasattr(transformation, "__call__"):
+                                current_doc = transformation(current_doc)
+                            elif hasattr(transformation, "aextract"):
+                                current_doc = await transformation.aextract(current_doc)
+                        
+                        # 添加处理后的节点
+                        processed_docs.extend(current_doc)
+                        logger.info(f"Document {i+1} processed with {document_category} strategy, generated {len(current_doc)} nodes")
+                    except Exception as e:
+                        logger.error(f"Error processing document {i+1} with {document_category} strategy: {str(e)}")
+                        # 如果单个文档处理失败，继续处理其他文档
+                        continue
+                
+                # 使用处理后的节点
+                type_nodes = processed_docs
+                logger.info(f"All documents processed, total nodes: {len(type_nodes)}")
+                
+                # 跳过后续的管道处理，因为我们已经在每个文档级别处理了
+                current_docs = type_nodes
+                
                 # 记录每个文档的处理详情
                 for i, doc in enumerate(type_docs):
                     logger.info(
                         f"Document {i+1}/{len(type_docs)}: {doc.metadata.get('file_name', 'unknown')} (size: {len(doc.text)} chars)"
                     )
                     all_doc_ids.append(doc.doc_id)
-
-                try:
-                    # 创建自定义的管道来逐步处理并记录每个阶段
-                    logger.info("Starting transformation pipeline execution...")
-
-                    # 逐个执行transformation步骤并记录时间
-                    current_docs = type_docs
-                    for step_idx, transformation in enumerate(pipeline.transformations):
-                        step_start = time.time()
-                        transformation_name = type(transformation).__name__
-                        logger.info(f"\n{'='*60}")
-                        logger.info(
-                            f"Step {step_idx+1}/{len(pipeline.transformations)}: Starting {transformation_name}"
-                        )
-                        logger.info(
-                            f"Input: {len(current_docs) if hasattr(current_docs, '__len__') else 'N/A'} items"
-                        )
-
-                        # 如果是LLM相关的extractor，记录更详细的信息
-                        if "Extractor" in transformation_name:
-                            logger.info(
-                                f"🤖 LLM Extractor detected: {transformation_name}"
-                            )
-                            logger.info(
-                                f"📝 This step will make LLM API calls - detailed logs will follow"
-                            )
-                            if hasattr(transformation, "llm"):
-                                logger.info(
-                                    f"🔧 LLM model: {type(transformation.llm).__name__}"
-                                )
-
-                        try:
-                            if hasattr(transformation, "transform"):
-                                # 对于node parser和其他transformer
-                                if step_idx == 0:  # 第一步，输入是documents
-                                    current_docs = transformation.transform(
-                                        current_docs
-                                    )
-                                else:  # 后续步骤，输入是nodes
-                                    current_docs = transformation.transform(
-                                        current_docs
-                                    )
-                            elif hasattr(transformation, "__call__"):
-                                # 对于embedding model等
-                                current_docs = transformation(current_docs)
-                            elif hasattr(transformation, "aextract"):
-                                # 对于SmartMetadataExtractor，使用异步方法并传递进度回调
-                                import asyncio
-                                current_docs = await transformation.aextract(current_docs)
-
-                            step_time = time.time() - step_start
-                            logger.info(
-                                f"✅ Step {step_idx+1} ({transformation_name}) completed successfully in {step_time:.2f}s"
-                            )
-                            logger.info(
-                                f"📊 Output: {len(current_docs) if hasattr(current_docs, '__len__') else 'N/A'} items"
-                            )
-
-                            # 如果是LLM相关的extractor，记录成功信息
-                            if "Extractor" in transformation_name:
-                                logger.info(
-                                    f"🎉 LLM Extractor {transformation_name} completed successfully"
-                                )
-                                logger.info(
-                                    f"⏱️  Total LLM processing time: {step_time:.2f}s"
-                                )
-
-                        except Exception as e:
-                            step_time = time.time() - step_start
-                            logger.error(
-                                f"❌ Step {step_idx+1} ({transformation_name}) FAILED after {step_time:.2f}s"
-                            )
-                            logger.error(f"🚨 Error in {transformation_name}: {str(e)}")
-                            if "Extractor" in transformation_name:
-                                logger.error(
-                                    f"💥 LLM Extractor {transformation_name} failed - this is likely the timeout source!"
-                                )
-                                logger.error(
-                                    f"🔍 Check the LLM API calls above for timeout or connection issues"
-                                )
-                            raise
-
-                        logger.info(f"{'='*60}\n")
-
-                    type_nodes = current_docs
-                    processing_time = time.time() - start_time
-                    logger.info(
-                        f"Pipeline processing completed for {file_type} in {processing_time:.2f}s, generated {len(type_nodes)} nodes"
-                    )
-
-                    all_nodes.extend(type_nodes)
-                    logger.info(f"Total nodes accumulated: {len(all_nodes)}")
-
-                except Exception as e:
-                    processing_time = time.time() - start_time
-                    logger.error(
-                        f"Pipeline processing failed for {file_type} after {processing_time:.2f}s: {e}"
-                    )
-                    logger.error(f"Error details: {str(e)}")
-                    logger.error(
-                        f"Error occurred during pipeline execution, last successful step info available in logs above"
-                    )
-                    raise
+                
+                # 添加处理后的节点到总列表
+                all_nodes.extend(type_nodes)
+                logger.info(f"Total nodes accumulated: {len(all_nodes)}")
 
                 task.progress += progress_step
                 logger.info(f"Progress updated to {task.progress:.1f}%")
@@ -436,6 +299,10 @@ class VectorStoreBuilder:
             task.total_nodes = len(all_nodes)
             nodes = all_nodes
             logger.info(f"Merging nodes completed, total nodes: {len(nodes)}")
+            
+            # 注意：现在DocumentLevelMetadataExtractor返回元数据字典，不会向all_nodes添加原始文档节点
+            # NodeParser会自动继承文档元数据并生成带有node_type='chunk'的节点
+            task.total_nodes = len(nodes)
 
             # 5.5 为节点添加页码信息
             nodes = self._map_page_info_to_nodes(nodes)
@@ -522,9 +389,6 @@ class VectorStoreBuilder:
             return result
 
         except Exception as e:
-            import traceback
-
-            traceback.print_exc()
             logger.error(f"Error building vector store: {e}")
             raise
 
@@ -622,33 +486,80 @@ class VectorStoreBuilder:
         )
         return all_tasks
 
-    def _get_node_parser_for_file_type(self, file_type: str, config: Dict[str, Any]):
-        """根据文件类型获取合适的节点解析器，使用DocumentPreservingTransformer保留原始文档"""
-        chunk_size = config.get("chunk_size", settings.CHUNK_SIZE)
-        chunk_overlap = config.get("chunk_overlap", settings.CHUNK_OVERLAP)
+    def _get_node_parser_for_file_type(self, file_type: str, config: Dict[str, Any], document_category: str = None):
+        """根据文件类型和文档类型获取合适的节点解析器
+        
+        Args:
+            file_type: 文件类型（如.pdf, .md等）
+            config: 配置字典
+            document_category: 文档类型（legal_document, policy_document, general_document）
+        """
+        # 根据文档类型调整分块策略
+        chunk_size, chunk_overlap = self._adjust_chunk_params_by_document_type(
+            document_category, config
+        )
+        
+        logger.info(f"📊 Chunking strategy for {document_category or 'unknown'} document: chunk_size={chunk_size}, chunk_overlap={chunk_overlap}")
+
+        # 对于政策文档，使用语义感知解析器
+        # if document_category == 'policy_document':
+            
+        #     from llama_index.core.node_parser import SemanticSplitterNodeParser
+        #     logger.info(f"🎯 Using semantic splitter for {document_category}")
+        #     return [SemanticSplitterNodeParser(
+        #         embed_model=self.embed_model,
+        #     )]
 
         # 根据文件类型选择基础解析器
         if file_type == ".md":
             # Markdown文件使用MarkdownNodeParser，然后配合SentenceSplitter
-            base_parsers = [
+            return [
                 MarkdownNodeParser.from_defaults(),
                 SentenceSplitter(chunk_size=chunk_size, chunk_overlap=chunk_overlap),
             ]
         elif file_type in [".html", ".htm"]:
             # HTML文件使用HTMLNodeParser，然后配合SentenceSplitter
-            base_parsers = [
+            return [
                 HTMLNodeParser.from_defaults(),
                 SentenceSplitter(chunk_size=chunk_size, chunk_overlap=chunk_overlap),
             ]
         elif file_type == ".json":
             # JSON文件直接使用DoclingNodeParser
-            base_parsers = [DoclingNodeParser()]
+            return [DoclingNodeParser()]
         else:
             # 文本文件直接使用SentenceSplitter
-            base_parsers = SentenceSplitter(chunk_size=chunk_size, chunk_overlap=chunk_overlap)
+            return [SentenceSplitter(chunk_size=chunk_size, chunk_overlap=chunk_overlap)]
+    
+    def _adjust_chunk_params_by_document_type(self, document_category: str, config: Dict[str, Any]) -> Tuple[int, int]:
+        """根据文档类型调整分块参数
         
-        # 使用DocumentPreservingTransformer包装基础解析器
-        return [DocumentPreservingTransformer(base_parsers)]
+        Args:
+            document_category: 文档类型
+            config: 配置字典
+            
+        Returns:
+            Tuple[int, int]: 调整后的(chunk_size, chunk_overlap)
+        """
+        if not document_category:
+            return settings.GENERAL_CHUNK_SIZE, settings.GENERAL_CHUNK_OVERLAP
+            
+        # 法律文档：使用较大的分块以保持法条完整性
+        if document_category == 'legal_document':
+            chunk_size = config.get("legal_chunk_size", settings.LEGAL_CHUNK_SIZE)
+            chunk_overlap = config.get("legal_chunk_overlap", settings.LEGAL_CHUNK_OVERLAP)
+            return chunk_size, chunk_overlap
+            
+        # 政策文档：使用中等分块以平衡内容完整性和检索精度
+        elif document_category == 'policy_document':
+            chunk_size = config.get("policy_chunk_size", settings.POLICY_CHUNK_SIZE)
+            chunk_overlap = config.get("policy_chunk_overlap", settings.POLICY_CHUNK_OVERLAP)
+            return chunk_size, chunk_overlap
+            
+        # 通用文档：使用默认分块策略
+        else:  # general_document
+            chunk_size = config.get("general_chunk_size", settings.GENERAL_CHUNK_SIZE)
+            chunk_overlap = config.get("general_chunk_overlap", settings.GENERAL_CHUNK_OVERLAP)
+            return chunk_size, chunk_overlap
 
     def _determine_vector_store_strategy(
         self, origin_file_path: str
@@ -734,52 +645,17 @@ class VectorStoreBuilder:
             vector_store = index.storage_context.vector_store
         else:
             logger.info(f"Creating new vector store")
-            # 创建向量存储
-            vector_store = postgres_builder.create_vector_store()
-            store_time = time.time() - start_time
-            logger.info(f"PostgreSQL vector store created in {store_time:.3f}s")
-
-            # 创建存储上下文
-            logger.info("Creating storage context")
+            # 使用postgres_builder的统一存储上下文管理来创建索引
+            logger.info(f"Creating vector store index with {len(nodes)} nodes using unified storage context")
             start_time = time.time()
-            storage_context = StorageContext.from_defaults(vector_store=vector_store)
-            context_time = time.time() - start_time
-            logger.info(f"Storage context created in {context_time:.3f}s")
-
-            # 创建索引
-            logger.info(f"Creating vector store index with {len(nodes)} nodes")
-            start_time = time.time()
-            index = VectorStoreIndex(
-                nodes=nodes,
-                storage_context=storage_context,
-                embed_model=self.embed_model,
-            )
+            index = postgres_builder.create_index_from_nodes(nodes, self.embed_model)
+            vector_store = index.storage_context.vector_store
 
         index_time = time.time() - start_time
         logger.info(f"Vector store index processed in {index_time:.2f}s")
 
         # 返回实际使用的索引ID
         return vector_store, index, target_index_id
-
-    def _save_index(self, index: VectorStoreIndex, index_id: str) -> str:
-        """保存索引"""
-        import time
-
-        logger.info(f"Preparing index directory for {index_id}")
-        index_dir = Path(settings.INDEX_STORE_PATH) / index_id
-        index_dir.mkdir(parents=True, exist_ok=True)
-        logger.info(f"Index directory created: {index_dir}")
-
-        # 保存索引
-        logger.info(f"Starting index persistence to {index_dir}")
-        start_time = time.time()
-        index.storage_context.persist(persist_dir=str(index_dir))
-        persist_time = time.time() - start_time
-
-        logger.info(
-            f"Index persistence completed in {persist_time:.2f}s to {index_dir}"
-        )
-        return str(index_dir)
 
     def _map_page_info_to_nodes(self, nodes: List[Any]) -> List[Any]:
         """将页码信息映射到文档切片节点
@@ -1275,6 +1151,40 @@ class VectorStoreBuilder:
             raise ValueError(
                 f"Parse task {task_id} is not completed. Current status: {parse_task.status}"
             )
+
+        # 检查是否已存在相同解析任务ID的向量任务
+        existing_vector_tasks = self.task_dao.get_vector_tasks_by_parse_task(task_id)
+        if existing_vector_tasks:
+            # 查找非running状态的任务
+            for existing_task in existing_vector_tasks:
+                if existing_task.status != TaskStatus.RUNNING:
+                    logger.info(
+                        f"Found existing vector store task {existing_task.task_id} for parse task {task_id} with status {existing_task.status}, executing vectorization"
+                    )
+                    # 将现有任务添加到内存中的任务字典（如果不存在）
+                    if existing_task.task_id not in self.tasks:
+                        self.tasks[existing_task.task_id] = existing_task
+                    
+                    
+                    # 重新执行向量化
+                    existing_task.status = TaskStatus.PENDING
+                    existing_task.progress = 0
+                    existing_task.error = None
+                    
+                    # 异步执行构建
+                    asyncio.create_task(self._execute_build_task(existing_task))
+                    
+                    logger.info(
+                        f"Restarted vector store build task {existing_task.task_id} from parse task {task_id}"
+                    )
+                    return existing_task.task_id
+            
+            # 如果只有running状态的任务，记录日志但继续创建新任务
+            running_tasks = [t for t in existing_vector_tasks if t.status == TaskStatus.RUNNING]
+            if running_tasks:
+                logger.info(
+                    f"Found {len(running_tasks)} running vector store task(s) for parse task {task_id}, creating new task"
+                )
 
         # 判断是否为主任务（parent_task_id为None表示主任务）
         is_main_task = parse_task.parent_task_id is None

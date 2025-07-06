@@ -30,10 +30,10 @@ logger = logging.getLogger(__name__)
 # 动态模板生成函数
 def _create_legal_document_template() -> str:
     """为法律文档创建基于模型字段的文档级提取模板"""
-    from models.metadata_models import DocumentLevelMetadata
+    from models.metadata_models import LegalDocumentMetadata
     
     fields_desc = []
-    for field_name, model_field in DocumentLevelMetadata.model_fields.items():
+    for field_name, model_field in LegalDocumentMetadata.model_fields.items():
         fields_desc.append(f"- **{field_name}**: {model_field.description}")
     
     return f"""
@@ -44,7 +44,7 @@ def _create_legal_document_template() -> str:
 {{context_str}}
 ----------------
 
-请提取以下文档级信息：
+请提取以下法律文档级信息：
 
 {chr(10).join(fields_desc)}
 
@@ -80,10 +80,10 @@ def _create_legal_chunk_template() -> str:
 
 def _create_policy_news_document_template() -> str:
     """为政策新闻文档创建基于模型字段的文档级提取模板"""
-    from models.metadata_models import DocumentLevelMetadata
+    from models.metadata_models import PolicyDocumentMetadata
     
     fields_desc = []
-    for field_name, model_field in DocumentLevelMetadata.model_fields.items():
+    for field_name, model_field in PolicyDocumentMetadata.model_fields.items():
         fields_desc.append(f"- **{field_name}**: {model_field.description}")
     
     return f"""
@@ -94,7 +94,7 @@ def _create_policy_news_document_template() -> str:
 {{context_str}}
 ----------------
 
-请提取以下文档级信息：
+请提取以下政策文档级信息：
 
 {chr(10).join(fields_desc)}
 
@@ -142,7 +142,7 @@ class SmartMetadataExtractor(BaseExtractor):
     """智能元数据提取器"""
     
     llm: LLM = Field(description="语言模型实例")
-    min_chunk_size_for_extraction: int = Field(default=100, description="进行元数据提取的最小chunk大小，低于此长度的chunk将跳过提取")
+    min_chunk_size_for_extraction: int = Field(default=20, description="进行元数据提取的最小chunk大小，低于此长度的chunk将跳过提取")
     min_chunk_size_for_summary: int = Field(default=512, description="生成摘要的最小chunk大小")
     min_chunk_size_for_qa: int = Field(default=1024, description="生成问答对的最小chunk大小")
     max_keywords: int = Field(default=5, description="要提取的最大关键词数")
@@ -244,6 +244,155 @@ class SmartMetadataExtractor(BaseExtractor):
         # 使用智能合并逻辑
         return self._merge_document_and_chunk_metadata(doc_metadata, fallback_metadata)
     
+    def _optimize_document_content_for_extraction(self, text_content: str, doc_id: str) -> str:
+        """优化文档内容以提高元数据提取效率
+        
+        对于超大文档，采用以下优化策略：
+        1. 对于超过配置阈值的文档，提取关键章节
+        2. 对于超大文档，使用文档摘要或关键段落
+        3. 保留文档结构信息（标题、章节等）
+        
+        Args:
+            text_content: 原始文档内容
+            doc_id: 文档ID
+            
+        Returns:
+            优化后的文档内容
+        """
+        from config import settings
+        
+        content_length = len(text_content)
+        
+        # 小文档直接返回
+        if content_length <= settings.DOC_CONTENT_OPTIMIZATION_THRESHOLD:
+            return text_content
+            
+        logger.info(f"📊 [CONTENT OPTIMIZER] Optimizing large document: {doc_id} ({content_length} chars)")
+        
+        try:
+            # 策略1: 提取文档结构和关键部分
+            if content_length <= settings.DOC_LARGE_CONTENT_THRESHOLD:
+                return self._extract_key_sections(text_content)
+            
+            # 策略2: 超大文档使用智能摘要
+            else:
+                return self._extract_document_summary_sections(text_content)
+                
+        except Exception as e:
+            logger.warning(f"⚠️ [CONTENT OPTIMIZER] Optimization failed for {doc_id}: {e}, using truncated content")
+            # 降级策略：截取前配置长度的字符
+            fallback_length = settings.DOC_MAX_OPTIMIZED_LENGTH
+            return text_content[:fallback_length] + "\n\n[文档内容已截断以优化处理效率]" if content_length > fallback_length else text_content
+    
+    def _extract_key_sections(self, text_content: str) -> str:
+        """提取文档的关键章节（适用于中等长度文档）"""
+        from config import settings
+        
+        lines = text_content.split('\n')
+        key_sections = []
+        current_section = []
+        
+        # 定义关键章节标识符
+        section_patterns = [
+            r'^(第[一二三四五六七八九十\d]+章|Chapter\s+\d+)',  # 章节
+            r'^(第[一二三四五六七八九十\d]+条|Article\s+\d+)',  # 条文
+            r'^(第[一二三四五六七八九十\d]+节|Section\s+\d+)',  # 节
+            r'^(\d+\.|\d+、|\([一二三四五六七八九十\d]+\))',  # 编号列表
+            r'^(#{1,6}\s+)',  # Markdown标题
+            r'^([一二三四五六七八九十]、|[A-Z]\.|\d+\.)\s*[^\s]',  # 中文序号
+        ]
+        
+        import re
+        
+        for line in lines:
+            line = line.strip()
+            if not line:
+                continue
+                
+            # 检查是否是关键章节开始
+            is_section_start = any(re.match(pattern, line) for pattern in section_patterns)
+            
+            if is_section_start:
+                # 保存之前的章节（如果有内容且不超过配置的最大章节长度）
+                if current_section and len('\n'.join(current_section)) <= settings.DOC_MAX_SECTION_LENGTH:
+                    key_sections.extend(current_section)
+                    key_sections.append('')  # 添加分隔符
+                
+                current_section = [line]
+            else:
+                current_section.append(line)
+                
+                # 如果当前章节过长，截断
+                if len('\n'.join(current_section)) > settings.DOC_MAX_SECTION_LENGTH:
+                    key_sections.extend(current_section[:20])  # 只保留前20行
+                    key_sections.append('[章节内容已截断]')
+                    key_sections.append('')
+                    current_section = []
+        
+        # 处理最后一个章节
+        if current_section and len('\n'.join(current_section)) <= settings.DOC_MAX_SECTION_LENGTH:
+            key_sections.extend(current_section)
+        
+        result = '\n'.join(key_sections)
+        
+        # 如果提取的内容仍然过长，进一步截断
+        if len(result) > settings.DOC_MAX_OPTIMIZED_LENGTH:
+            result = result[:settings.DOC_MAX_OPTIMIZED_LENGTH] + "\n\n[内容已优化截断]" 
+            
+        return result
+    
+    def _extract_document_summary_sections(self, text_content: str) -> str:
+        """提取超大文档的摘要部分（适用于超长文档）"""
+        from config import settings
+        
+        lines = text_content.split('\n')
+        
+        # 提取策略：开头、关键标题、结尾
+        summary_parts = []
+        
+        # 1. 文档开头（使用配置的章节长度）
+        beginning = '\n'.join(lines[:50])  # 前50行
+        if len(beginning) > settings.DOC_MAX_SECTION_LENGTH:
+            beginning = beginning[:settings.DOC_MAX_SECTION_LENGTH]
+        summary_parts.append("=== 文档开头 ===")
+        summary_parts.append(beginning)
+        summary_parts.append("")
+        
+        # 2. 提取主要标题和章节（中间部分）
+        import re
+        title_patterns = [
+            r'^(第[一二三四五六七八九十\d]+章.*)',
+            r'^(第[一二三四五六七八九十\d]+条.*)',
+            r'^(#{1,3}\s+.*)',  # Markdown主标题
+            r'^([一二三四五六七八九十]、.*)',
+        ]
+        
+        summary_parts.append("=== 主要章节标题 ===")
+        title_count = 0
+        for line in lines[50:-50]:  # 跳过开头和结尾
+            line = line.strip()
+            if any(re.match(pattern, line) for pattern in title_patterns):
+                summary_parts.append(line)
+                title_count += 1
+                if title_count >= 20:  # 最多20个标题
+                    break
+        summary_parts.append("")
+        
+        # 3. 文档结尾（使用配置的章节长度）
+        ending = '\n'.join(lines[-20:])  # 后20行
+        if len(ending) > settings.DOC_MAX_SECTION_LENGTH:
+            ending = ending[-settings.DOC_MAX_SECTION_LENGTH:]
+        summary_parts.append("=== 文档结尾 ===")
+        summary_parts.append(ending)
+        
+        result = '\n'.join(summary_parts)
+        
+        # 确保结果不超过配置的摘要最大长度
+        if len(result) > settings.DOC_SUMMARY_MAX_LENGTH:
+            result = result[:settings.DOC_SUMMARY_MAX_LENGTH] + "\n\n[超大文档已智能摘要]" 
+            
+        return result
+
     def _merge_document_and_chunk_metadata(self, doc_metadata: Dict[str, Any], chunk_metadata: Dict[str, Any]) -> Dict[str, Any]:
         """分层级存储文档级和chunk级元数据
         
@@ -291,24 +440,30 @@ class SmartMetadataExtractor(BaseExtractor):
             logger.warning("Using default 'generic' category due to LLM API error")
             category = "generic"
 
-        # 2. 选择模板
+        # 2. 选择模板和元数据模型
         if "legal" in category:
+            from models.metadata_models import LegalDocumentMetadata
             doc_template = _create_legal_document_template()
             chunk_template = _create_legal_chunk_template()
             category_name = "legal_document"
+            metadata_model = LegalDocumentMetadata
         elif "policy" in category:
+            from models.metadata_models import PolicyDocumentMetadata
             doc_template = _create_policy_news_document_template()
             chunk_template = _create_policy_news_chunk_template()
             category_name = "policy_news"
+            metadata_model = PolicyDocumentMetadata
         else:
+            from models.metadata_models import DocumentLevelMetadata
             doc_template = self._create_default_document_template()
             chunk_template = self._create_default_chunk_template()
             category_name = "generic"
+            metadata_model = DocumentLevelMetadata
 
         # 3. 提取文档级元数据
         try:
             document_program = LLMTextCompletionProgram.from_defaults(
-                output_cls=DocumentLevelMetadata,
+                output_cls=metadata_model,
                 prompt_template_str=doc_template,
                 llm=self.llm,
                 verbose=True,
@@ -1208,13 +1363,23 @@ class SmartMetadataExtractor(BaseExtractor):
                     if node_type == "original_document":
                         logger.info(f"📋 [METADATA EXTRACTOR] Processing original document: {doc_id} (length: {text_length})")
                         
+                        # 优化处理策略：对于超大文档，使用摘要或关键部分进行元数据提取
+                        optimized_content = self._optimize_document_content_for_extraction(text_content, doc_id)
+                        optimized_length = len(optimized_content)
+                        
+                        if optimized_length != text_length:
+                            logger.info(f"🔧 [METADATA EXTRACTOR] Document content optimized: {text_length} -> {optimized_length} characters")
+                        
                         # 提取文档级元数据并缓存
-                        cached_data = await self._classify_and_extract(text_content, doc_id)
+                        cached_data = await self._classify_and_extract(optimized_content, doc_id)
                         doc_metadata = cached_data["metadata"]
                         
                         # 为原始文档节点设置特殊的元数据
                         original_doc_metadata = {
-                            **doc_metadata
+                            **doc_metadata,
+                            "content_optimization_applied": optimized_length != text_length,
+                            "original_content_length": text_length,
+                            "optimized_content_length": optimized_length
                         }
                         metadata_list[idx] = original_doc_metadata
                         

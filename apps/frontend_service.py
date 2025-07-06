@@ -74,6 +74,20 @@ class RecallTestRequest(BaseModel):
     index_id: str = Field(..., description="索引ID")
     test_queries: List[Dict[str, Any]] = Field(..., description="测试查询列表")
 
+class EnhancedRetrievalRequest(BaseModel):
+    """增强检索请求"""
+    query: str = Field(..., description="查询文本")
+    top_k: Optional[int] = Field(default=10, description="返回结果数量")
+    enable_metadata_filter: Optional[bool] = Field(default=True, description="启用元数据过滤")
+    enable_intent_classification: Optional[bool] = Field(default=True, description="启用意图分类")
+    enable_cache: Optional[bool] = Field(default=True, description="启用缓存")
+    custom_filters: Optional[Dict[str, Any]] = Field(default=None, description="自定义过滤条件")
+
+class RetrievalStatsRequest(BaseModel):
+    """检索统计请求"""
+    include_cache_info: Optional[bool] = Field(default=True, description="包含缓存信息")
+    include_filter_info: Optional[bool] = Field(default=True, description="包含过滤器信息")
+
 class LLMConfigRequest(BaseModel):
     """LLM配置请求"""
     api_base: Optional[str] = Field(default=None, description="API基础URL")
@@ -631,8 +645,7 @@ async def clear_chat_history(
             session_obj = rag_service.sessions[session_id]
             if hasattr(session_obj, 'chat_history'):
                 session_obj.chat_history.clear()
-            if hasattr(session_obj, 'message_count'):
-                session_obj.message_count = 0
+            # message_count是只读属性，会自动从数据库获取，无需手动设置
         
         return success_response(
             data={"session_id": session_id},
@@ -641,6 +654,8 @@ async def clear_chat_history(
         
     except Exception as e:
         logger.error(f"Error clearing chat history: {e}")
+        import traceback
+        traceback.print_exc()
         return error_response(
             message="清除聊天历史时发生错误",
             error_code=ErrorCodes.INTERNAL_ERROR,
@@ -761,6 +776,177 @@ async def get_config() -> JSONResponse:
         },
         message="获取服务配置成功"
     )
+
+# ==================== 增强RAG功能API端点 ====================
+
+@app.post("/retrieve/enhanced")
+async def enhanced_retrieve(
+    request: EnhancedRetrievalRequest,
+    current_user: dict = Depends(get_optional_current_user)
+) -> JSONResponse:
+    """增强检索API"""
+    try:
+        # 检查增强功能是否可用
+        if not hasattr(rag_service, 'enhanced_retrieve'):
+            return error_response(
+                message="增强检索功能不可用",
+                error_code=ErrorCodes.INTERNAL_ERROR,
+                status_code=503
+            )
+        
+        nodes = await rag_service.enhanced_retrieve(
+            query=request.query,
+            top_k=request.top_k,
+            enable_metadata_filter=request.enable_metadata_filter,
+            enable_intent_classification=request.enable_intent_classification,
+            enable_cache=request.enable_cache,
+            custom_filters=request.custom_filters
+        )
+        
+        # 转换为可序列化的格式
+        results = []
+        for node in nodes:
+            result = {
+                "content": node.node.text,
+                "score": float(node.score),
+                "metadata": node.node.metadata
+            }
+            
+            # 添加增强信息
+            if hasattr(node, 'enhanced_info'):
+                result["enhanced_info"] = node.enhanced_info
+            
+            results.append(result)
+        
+        return success_response(
+            data={
+                "query": request.query,
+                "results": results,
+                "total_count": len(results),
+                "enhanced_features": {
+                    "metadata_filter_enabled": request.enable_metadata_filter,
+                    "intent_classification_enabled": request.enable_intent_classification,
+                    "cache_enabled": request.enable_cache
+                }
+            },
+            message="增强检索完成"
+        )
+        
+    except Exception as e:
+        logger.error(f"Error in enhanced retrieval: {e}")
+        return error_response(
+            message="增强检索时发生错误",
+            error_code=ErrorCodes.INTERNAL_ERROR,
+            status_code=500,
+            details={"error": str(e)}
+        )
+
+@app.get("/retrieve/stats")
+async def get_retrieval_stats(
+    include_cache_info: bool = Query(default=True, description="包含缓存信息"),
+    include_filter_info: bool = Query(default=True, description="包含过滤器信息"),
+    current_user: dict = Depends(get_optional_current_user)
+) -> JSONResponse:
+    """获取检索统计信息"""
+    try:
+        # 检查增强功能是否可用
+        if not hasattr(rag_service, 'get_retrieval_stats'):
+            return error_response(
+                message="检索统计功能不可用",
+                error_code=ErrorCodes.INTERNAL_ERROR,
+                status_code=503
+            )
+        
+        stats = rag_service.get_retrieval_stats()
+        
+        # 根据参数过滤信息
+        if not include_cache_info:
+            stats.pop('cache_size', None)
+        
+        if not include_filter_info:
+            stats.pop('available_filters', None)
+        
+        return success_response(
+            data=stats,
+            message="获取检索统计信息成功"
+        )
+        
+    except Exception as e:
+        logger.error(f"Error getting retrieval stats: {e}")
+        return error_response(
+            message="获取检索统计信息时发生错误",
+            error_code=ErrorCodes.INTERNAL_ERROR,
+            status_code=500,
+            details={"error": str(e)}
+        )
+
+@app.post("/cache/clear")
+async def clear_all_caches(
+    current_user: dict = Depends(get_current_active_user)
+) -> JSONResponse:
+    """清空所有缓存"""
+    try:
+        # 检查清理缓存功能是否可用
+        if not hasattr(rag_service, 'clear_all_caches'):
+            return error_response(
+                message="清理缓存功能不可用",
+                error_code=ErrorCodes.INTERNAL_ERROR,
+                status_code=503
+            )
+        
+        rag_service.clear_all_caches()
+        
+        return success_response(
+            data={"cleared_at": asyncio.get_event_loop().time()},
+            message="所有缓存已清空"
+        )
+        
+    except Exception as e:
+        logger.error(f"Error clearing caches: {e}")
+        return error_response(
+            message="清空缓存时发生错误",
+            error_code=ErrorCodes.INTERNAL_ERROR,
+            status_code=500,
+            details={"error": str(e)}
+        )
+
+@app.get("/enhanced/status")
+async def get_enhanced_status() -> JSONResponse:
+    """获取增强功能状态"""
+    try:
+        enhanced_available = hasattr(rag_service, 'metadata_filter') and rag_service.metadata_filter is not None
+        
+        status = {
+            "enhanced_features_available": enhanced_available,
+            "features": {
+                "metadata_filtering": hasattr(rag_service, 'metadata_filter') and rag_service.metadata_filter is not None,
+                "intent_classification": hasattr(rag_service, 'intent_classifier') and rag_service.intent_classifier is not None,
+                "query_caching": hasattr(rag_service, 'query_cache') and rag_service.query_cache is not None,
+                "enhanced_retrieve": hasattr(rag_service, 'enhanced_retrieve')
+            }
+        }
+        
+        if enhanced_available:
+            # 获取更多详细信息
+            if hasattr(rag_service, 'intent_weights'):
+                status["supported_intents"] = list(rag_service.intent_weights.keys())
+            
+            if hasattr(rag_service, 'query_cache') and rag_service.query_cache:
+                status["cache_size"] = len(rag_service.query_cache.cache)
+        
+        return success_response(
+            data=status,
+            message="获取增强功能状态成功"
+        )
+        
+    except Exception as e:
+        logger.error(f"Error getting enhanced status: {e}")
+        return error_response(
+            message="获取增强功能状态时发生错误",
+            error_code=ErrorCodes.INTERNAL_ERROR,
+            status_code=500,
+            details={"error": str(e)}
+        )
 
 if __name__ == "__main__":
     import uvicorn
