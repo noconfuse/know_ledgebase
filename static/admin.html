@@ -279,37 +279,64 @@
             opacity: 0.6;
         }
         
-        /* 二级任务列表样式 */
-        .sub-task {
-            background-color: #f8f9fa;
-            border-left: 3px solid #007bff;
-        }
-        
-        .sub-task td:first-child {
-            padding-left: 30px;
-            position: relative;
-        }
-        
-        .sub-task td:first-child::before {
-            content: "└─";
-            position: absolute;
-            left: 15px;
-            color: #6c757d;
-        }
-        
+        /* 父子任务样式 */
         .parent-task {
+            background-color: #f8f9fa;
+            border-left: 4px solid #28a745;
             font-weight: 600;
         }
         
-        .toggle-subtasks {
-            cursor: pointer;
-            color: #007bff;
-            font-size: 12px;
-            margin-left: 10px;
+        .child-task {
+            background-color: #fff;
+            border-left: 3px solid #6c757d;
         }
         
-        .toggle-subtasks:hover {
-            text-decoration: underline;
+        .child-task td:first-child {
+            color: #6c757d;
+        }
+        
+        /* 父任务信息显示样式 */
+        .parent-task-info {
+            background: #e8f5e8;
+            padding: 8px;
+            border-radius: 4px;
+            border-left: 3px solid #28a745;
+        }
+        
+        .parent-task-info .task-id {
+            font-weight: bold;
+            color: #155724;
+        }
+        
+        .parent-task-info .file-path {
+            font-size: 12px;
+            color: #666;
+            margin-top: 2px;
+        }
+        
+        .parent-task-info .status {
+            font-size: 11px;
+            margin-top: 2px;
+        }
+        
+        /* 任务类型标签样式 */
+        .task-type-badge {
+            display: inline-block;
+            padding: 2px 6px;
+            border-radius: 3px;
+            font-size: 10px;
+            font-weight: bold;
+            text-transform: uppercase;
+        }
+        
+        .task-type-badge.parent {
+            background: #d4edda;
+            color: #155724;
+        }
+        
+        .task-type-badge.child {
+            background: #d1ecf1;
+            color: #0c5460;
         }
         
         /* 模态框样式 */
@@ -522,7 +549,12 @@
                 <div class="controls">
                     <div class="info">
                         <span>解析任务列表 (总计: <span id="parse-total">0</span>)</span>
-                        <div style="display: flex; gap: 10px; align-items: center;">
+                        <div style="display: flex; gap: 10px; align-items: center; flex-wrap: wrap;">
+                            <select id="parse-task-type" onchange="loadParseTasks()" style="padding: 5px; border: 1px solid #ddd; border-radius: 4px;">
+                                <option value="all">全部任务</option>
+                                <option value="parent">仅父任务</option>
+                                <option value="child">仅子任务</option>
+                            </select>
                             <input type="text" id="parse-filename-filter" placeholder="按文件名过滤..." style="padding: 5px; border: 1px solid #ddd; border-radius: 4px; width: 200px;" onkeyup="filterParseTasks()">
                             <button class="btn btn-primary" onclick="openCreateTaskModal()">创建解析任务</button>
                             <button class="refresh-btn" onclick="loadParseTasks()">刷新</button>
@@ -544,6 +576,7 @@
                             <tr>
                                 <th>任务ID</th>
                                 <th>文件路径</th>
+                                <th>父任务</th>
                                 <th>状态</th>
                                 <th>进度</th>
                                 <th>创建时间</th>
@@ -553,7 +586,7 @@
                             </tr>
                         </thead>
                         <tbody id="parse-tbody">
-                            <tr><td colspan="7" class="loading">加载中...</td></tr>
+                            <tr><td colspan="9" class="loading">加载中...</td></tr>
                         </tbody>
                     </table>
                 </div>
@@ -883,6 +916,15 @@
             </div>
             <div class="modal-body">
                 <div class="form-group">
+                    <label for="vectorTaskTypeFilter">任务类型筛选</label>
+                    <select id="vectorTaskTypeFilter" style="width: 100%; padding: 8px; border: 1px solid #ddd; border-radius: 4px; margin-bottom: 15px;" onchange="filterVectorParseTasksByType()">
+                        <option value="all">全部任务</option>
+                        <option value="parent">仅父任务</option>
+                        <option value="child">仅子任务</option>
+                    </select>
+                </div>
+                
+                <div class="form-group">
                     <label for="vectorParseTaskId">选择解析任务</label>
                     <select id="vectorParseTaskId" style="width: 100%; padding: 8px; border: 1px solid #ddd; border-radius: 4px;">
                         <option value="">请选择已完成的解析任务...</option>
@@ -1106,44 +1148,58 @@
             const limit = document.getElementById('parse-limit').value;
             const page = document.getElementById('parse-page').value;
             const offset = (page - 1) * limit;
+            const taskType = document.getElementById('parse-task-type').value;
             
             const tbody = document.getElementById('parse-tbody');
-            tbody.innerHTML = '<tr><td colspan="8" class="loading">加载中...</td></tr>';
+            tbody.innerHTML = '<tr><td colspan="9" class="loading">加载中...</td></tr>';
             
             try {
-                const data = await apiCall(`/admin/parse-tasks?limit=${limit}&offset=${offset}`);
+                let url = `/admin/parse-tasks?limit=${limit}&offset=${offset}`;
+                if (taskType && taskType !== 'all') {
+                    url += `&task_type=${taskType}`;
+                }
+                const data = await apiCall(url);
                 
                 pageData.parse.total = data.data.total;
                 document.getElementById('parse-total').textContent = data.data.total;
                 
-                // 按父子关系组织任务
-                const parentTasks = [];
-                const childTasks = {};
-                
-                data.data.items.forEach(task => {
-                    if (task.parent_task_id) {
-                        if (!childTasks[task.parent_task_id]) {
-                            childTasks[task.parent_task_id] = [];
-                        }
-                        childTasks[task.parent_task_id].push(task);
-                    } else {
-                        parentTasks.push(task);
-                    }
-                });
-                
                 let html = '';
-                parentTasks.forEach(task => {
+                data.data.items.forEach(task => {
                     const canRestart = task.status !== 'RUNNING';
-                    const hasChildren = childTasks[task.task_id] && childTasks[task.task_id].length > 0;
                     
-                    // 父任务行
+                    // 构建父任务信息显示
+                    let parentTaskInfo = '-';
+                    if (task.parent_task_info) {
+                        const parentInfo = task.parent_task_info;
+                        parentTaskInfo = `
+                            <div class="parent-task-info">
+                                <div class="task-id">${parentInfo.task_id}</div>
+                                <div class="file-path">${truncateText(parentInfo.file_path, 30)}</div>
+                                <div class="status">${formatStatus(parentInfo.status)}</div>
+                            </div>
+                        `;
+                    }
+                    
+                    // 任务行样式和任务ID显示
+                    let rowClass = '';
+                    let taskIdDisplay = task.task_id;
+                    let taskTypeBadge = '';
+                    
+                    if (task.is_parent) {
+                        rowClass = 'parent-task';
+                        taskIdDisplay = '📁 ' + taskIdDisplay;
+                        taskTypeBadge = '<span class="task-type-badge parent">父任务</span>';
+                    } else if (task.parent_task_id) {
+                        rowClass = 'child-task';
+                        taskIdDisplay = '&nbsp;&nbsp;└─ ' + taskIdDisplay;
+                        taskTypeBadge = '<span class="task-type-badge child">子任务</span>';
+                    }
+                    
                     html += `
-                        <tr class="parent-task">
-                            <td class="truncate" title="${task.task_id}">
-                                ${task.task_id}
-                                ${hasChildren ? `<span class="toggle-subtasks" onclick="toggleSubTasks('${task.task_id}')" id="toggle-${task.task_id}">[+] ${childTasks[task.task_id].length}个子任务</span>` : ''}
-                            </td>
+                        <tr class="${rowClass}">
+                            <td class="truncate" title="${task.task_id}">${taskIdDisplay} ${taskTypeBadge}</td>
                             <td class="truncate" title="${task.file_path || '-'}">${truncateText(task.file_path)}</td>
+                            <td>${parentTaskInfo}</td>
                             <td>${formatStatus(task.status)}</td>
                             <td>${task.progress || 0}%</td>
                             <td>${formatDate(task.created_at)}</td>
@@ -1159,32 +1215,6 @@
                             </td>
                         </tr>
                     `;
-                    
-                    // 子任务行（默认隐藏）
-                    if (hasChildren) {
-                        childTasks[task.task_id].forEach(childTask => {
-                            const childCanRestart = childTask.status !== 'RUNNING';
-                            html += `
-                                <tr class="sub-task" id="subtask-${task.task_id}" style="display: none;">
-                                    <td class="truncate" title="${childTask.task_id}">${childTask.task_id}</td>
-                                    <td class="truncate" title="${childTask.file_path || '-'}">${truncateText(childTask.file_path)}</td>
-                                    <td>${formatStatus(childTask.status)}</td>
-                                    <td>${childTask.progress || 0}%</td>
-                                    <td>${formatDate(childTask.created_at)}</td>
-                                    <td>${formatDate(childTask.completed_at)}</td>
-                                    <td class="truncate" title="${childTask.error || '-'}">${truncateText(childTask.error)}</td>
-                                    <td>
-                                        <button class="action-btn restart" 
-                                                onclick="restartParseTask('${childTask.task_id}')" 
-                                                ${!childCanRestart ? 'disabled' : ''}
-                                                title="${childCanRestart ? '重新执行任务' : '任务正在运行中'}">
-                                            重新执行
-                                        </button>
-                                    </td>
-                                </tr>
-                            `;
-                        });
-                    }
                 });
                 
                 tbody.innerHTML = html || '<tr><td colspan="9" style="text-align: center; color: #666;">暂无数据</td></tr>';
@@ -2009,26 +2039,75 @@
             }
         }
         
+        // 存储所有已完成的解析任务数据
+        let allCompletedTasks = [];
+        
+        // 加载向量化任务的解析任务选项
+        function loadVectorParseTaskOptions(tasks) {
+            const select = document.getElementById('vectorParseTaskId');
+            select.innerHTML = '<option value="">请选择已完成的解析任务...</option>';
+            
+            tasks.forEach(task => {
+                const option = document.createElement('option');
+                option.value = task.task_id;
+                
+                // 根据任务类型显示不同的格式
+                let displayText;
+                if (task.is_parent) {
+                    displayText = `[父任务] ${task.task_id} - ${task.file_path || '未知路径'}`;
+                } else if (task.parent_task_info) {
+                    displayText = `[子任务] ${task.task_id} - ${task.file_path || '未知路径'}`;
+                } else {
+                    displayText = `[独立任务] ${task.task_id} - ${task.file_path || '未知路径'}`;
+                }
+                
+                option.textContent = displayText;
+                option.dataset.filePath = task.file_path || '';
+                option.dataset.completedAt = task.completed_at || '';
+                option.dataset.isParent = task.is_parent ? 'true' : 'false';
+                select.appendChild(option);
+            });
+        }
+        
+        // 根据任务类型筛选解析任务
+        function filterVectorParseTasksByType() {
+            const filterValue = document.getElementById('vectorTaskTypeFilter').value;
+            let filteredTasks = [];
+            
+            switch(filterValue) {
+                case 'parent':
+                    filteredTasks = allCompletedTasks.filter(task => task.is_parent);
+                    break;
+                case 'child':
+                    filteredTasks = allCompletedTasks.filter(task => task.parent_task_info);
+                    break;
+                case 'all':
+                default:
+                    filteredTasks = allCompletedTasks;
+                    break;
+            }
+            
+            loadVectorParseTaskOptions(filteredTasks);
+            
+            // 清除已选择的任务信息
+            document.getElementById('selectedParseTaskInfo').style.display = 'none';
+        }
+        
         // 打开创建向量化任务模态框
         async function openCreateVectorTaskModal() {
             try {
                 // 加载已完成的解析任务
                 const data = await apiCall('/admin/parse-tasks?limit=1000&offset=0');
-                const completedTasks = data.data.items.filter(task => task.status === 'COMPLETED');
+                allCompletedTasks = data.data.items.filter(task => task.status === 'COMPLETED');
                 
-                const select = document.getElementById('vectorParseTaskId');
-                select.innerHTML = '<option value="">请选择已完成的解析任务...</option>';
+                // 重置筛选器
+                document.getElementById('vectorTaskTypeFilter').value = 'all';
                 
-                completedTasks.forEach(task => {
-                    const option = document.createElement('option');
-                    option.value = task.task_id;
-                    option.textContent = `${task.task_id} - ${task.file_path || '未知路径'}`;
-                    option.dataset.filePath = task.file_path || '';
-                    option.dataset.completedAt = task.completed_at || '';
-                    select.appendChild(option);
-                });
+                // 初始加载所有任务
+                loadVectorParseTaskOptions(allCompletedTasks);
                 
                 // 添加选择变化事件
+                const select = document.getElementById('vectorParseTaskId');
                 select.onchange = function() {
                     const selectedOption = this.options[this.selectedIndex];
                     const infoDiv = document.getElementById('selectedParseTaskInfo');
@@ -2090,6 +2169,16 @@
         // 页面加载完成后初始化
         document.addEventListener('DOMContentLoaded', function() {
             loadDashboard();
+            
+            // 添加任务类型筛选事件监听器
+            const parseTaskTypeSelect = document.getElementById('parse-task-type');
+            if (parseTaskTypeSelect) {
+                parseTaskTypeSelect.addEventListener('change', function() {
+                    // 重置到第一页
+                    document.getElementById('parse-page').value = 1;
+                    loadParseTasks();
+                });
+            }
         });
     </script>
 </body>

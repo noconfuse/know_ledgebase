@@ -412,13 +412,21 @@ class TaskDAO:
     
     # ==================== 管理界面需要的方法 ====================
     
-    def get_parse_tasks_count(self, status: str = None) -> int:
+    def get_parse_tasks_count(self, status: str = None, task_type: str = None) -> int:
         """获取解析任务总数"""
         try:
             db = self._get_session()
             query = db.query(ParseTask)
             if status:
                 query = query.filter(ParseTask.status == status)
+            
+            # 根据任务类型筛选
+            if task_type == 'parent':
+                query = query.filter(ParseTask.parent_task_id.is_(None))
+            elif task_type == 'child':
+                query = query.filter(ParseTask.parent_task_id.isnot(None))
+            # task_type == 'all' 或 None 时不添加筛选条件
+            
             count = query.count()
             return count
         except SQLAlchemyError as e:
@@ -447,3 +455,54 @@ class TaskDAO:
     def get_all_vector_store_tasks(self, limit: int = 100, offset: int = 0) -> List[VectorStoreTask]:
         """获取所有向量化任务（重定向到 list_vector_store_tasks 以避免重复实现）"""
         return self.list_vector_store_tasks(limit=limit, offset=offset)
+    
+    def list_parse_tasks_with_parent_info(self, limit: int = 100, offset: int = 0, status: str = None, task_type: str = None) -> List[ParseTask]:
+        """列出解析任务（带父任务信息）"""
+        try:
+            db = self._get_session()
+            
+            # 创建主查询
+            query = db.query(ParseTask)
+            
+            # 添加状态筛选
+            if status:
+                query = query.filter(ParseTask.status == status)
+            
+            # 根据任务类型筛选
+            if task_type == 'parent':
+                query = query.filter(ParseTask.parent_task_id.is_(None))
+            elif task_type == 'child':
+                query = query.filter(ParseTask.parent_task_id.isnot(None))
+            # task_type == 'all' 或 None 时不添加筛选条件
+            
+            # 执行查询
+            tasks = query.order_by(ParseTask.created_at.desc()).offset(offset).limit(limit).all()
+            
+            # 为每个任务添加父任务信息和是否为父任务的标识
+            for task in tasks:
+                # 添加父任务信息
+                if task.parent_task_id:
+                    parent_task = db.query(ParseTask).filter(ParseTask.id == task.parent_task_id).first()
+                    if parent_task:
+                        task.parent_task_info = {
+                            'task_id': parent_task.task_id,
+                            'file_path': parent_task.file_path,
+                            'status': parent_task.status.value if hasattr(parent_task.status, 'value') else str(parent_task.status)
+                        }
+                    else:
+                        task.parent_task_info = None
+                else:
+                    task.parent_task_info = None
+                
+                # 检查是否为父任务（是否有子任务）
+                child_count = db.query(ParseTask).filter(ParseTask.parent_task_id == task.id).count()
+                task.is_parent = child_count > 0
+            
+            return tasks
+            
+        except SQLAlchemyError as e:
+            logger.error(f"列出解析任务（带父任务信息）失败: {e}")
+            return []
+        finally:
+            if not self.db:
+                db.close()

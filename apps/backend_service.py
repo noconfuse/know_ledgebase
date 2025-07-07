@@ -764,7 +764,7 @@ async def admin_dashboard(
                             "task_id": task.task_id,
                             "status": task.status.value if hasattr(task.status, 'value') else str(task.status),
                             "file_path": task.file_path,
-                            "parent_task_id": task.parent_task_id,
+                            "parent_task_id": str(task.parent_task_id) if task.parent_task_id else None,
                             "created_at": task.created_at.isoformat() if task.created_at else None,
                             "completed_at": task.completed_at.isoformat() if task.completed_at else None,
                             "progress": task.progress
@@ -817,17 +817,20 @@ async def admin_dashboard(
             )
     except Exception as e:
         logger.error(f"Error getting admin dashboard data: {e}")
+        import traceback
+        traceback.print_exc()
         raise HTTPException(status_code=500, detail=str(e))
 
 @app.get("/admin/parse-tasks")
 async def get_parse_tasks_admin(
     limit: int = 20,
-    offset: int = 0
+    offset: int = 0,
+    task_type: str = None  # 新增筛选参数：parent, child, all
 ):
     """获取解析任务列表（管理界面）"""
     try:
-        tasks = task_dao.list_parse_tasks(limit=limit, offset=offset)
-        total = task_dao.get_parse_tasks_count()
+        tasks = task_dao.list_parse_tasks_with_parent_info(limit=limit, offset=offset, task_type=task_type)
+        total = task_dao.get_parse_tasks_count(task_type=task_type)
         
         return success_response(
             data={
@@ -839,7 +842,11 @@ async def get_parse_tasks_admin(
                     "started_at": task.started_at.isoformat() if task.started_at else None,
                     "completed_at": task.completed_at.isoformat() if task.completed_at else None,
                     "progress": task.progress,
-                    "error": task.error
+                    "error": task.error,
+                    "parent_task_id": str(task.parent_task_id) if task.parent_task_id else None,
+                    "parent_task_info": getattr(task, 'parent_task_info', None),  # 父任务信息
+                    "depth": task.depth or 0,
+                    "is_parent": getattr(task, 'is_parent', False)  # 是否为父任务
                 } for task in tasks],
                 "total": total,
                 "limit": limit,
@@ -849,6 +856,8 @@ async def get_parse_tasks_admin(
         )
     except Exception as e:
         logger.error(f"Error getting parse tasks: {e}")
+        import traceback
+        traceback.print_exc()
         raise HTTPException(status_code=500, detail=str(e))
 
 @app.get("/admin/vector-tasks")
