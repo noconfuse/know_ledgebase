@@ -6,6 +6,8 @@ from config import EmbeddingModelSettings, LLMModelSettings, RerankModelSettings
 # Import LlamaIndex LLM integrations
 from llama_index.core.llms import LLM
 from llama_index.llms.openai import OpenAI as LlamaIndexOpenAI
+from llama_index.llms.openai_like import OpenAILike as LlamaIndexOpenAILike
+
 from llama_index.llms.anthropic import Anthropic as LlamaIndexAnthropic
 from llama_index.llms.zhipuai import ZhipuAI as LlamaIndexZhipuAI
 from llama_index.llms.siliconflow import SiliconFlow as LlamaIndexSiliconFlow
@@ -86,17 +88,7 @@ class ModelClientFactory:
                 max_retries=model_config.MAX_RETRIES,
                 system_prompt=model_config.SYSTEM_PROMPT,
             )
-        elif provider_name == "zhipu":
-            return LlamaIndexZhipuAI(
-                model=model_config.MODEL_NAME,
-                api_key=model_config.API_KEY,
-                temperature=model_config.TEMPERATURE,
-                max_tokens=model_config.MAX_TOKENS,
-                max_retries=model_config.MAX_RETRIES,
-                system_prompt=model_config.SYSTEM_PROMPT,
-            )
         elif provider_name == "siliconflow":
-            print(model_config, "llm_model_config")
             return LlamaIndexSiliconFlow(
                 model=model_config.MODEL_NAME,
                 api_key=model_config.API_KEY,
@@ -105,6 +97,17 @@ class ModelClientFactory:
                 max_tokens=model_config.MAX_TOKENS,
                 max_retries=model_config.MAX_RETRIES,
                 system_prompt=model_config.SYSTEM_PROMPT,
+            )
+        elif provider_name == "zhipu":
+            return LlamaIndexZhipuAI(
+                model=model_config.MODEL_NAME,
+                api_key=model_config.API_KEY,
+                api_base=model_config.API_BASE_URL,
+                temperature=model_config.TEMPERATURE,
+                max_tokens=model_config.MAX_TOKENS,
+                max_retries=model_config.MAX_RETRIES,
+                system_prompt=model_config.SYSTEM_PROMPT,
+                is_function_calling_model=True,
             )
         elif provider_name == "deepseek":
             return LlamaIndexDeepSeek(
@@ -115,6 +118,7 @@ class ModelClientFactory:
                 max_tokens=model_config.MAX_TOKENS,
                 max_retries=model_config.MAX_RETRIES,
                 system_prompt=model_config.SYSTEM_PROMPT,
+                is_function_calling_model=True,
             )
         elif provider_name == "openrouter":
             return LlamaIndexOpenRouter(
@@ -127,8 +131,16 @@ class ModelClientFactory:
                 system_prompt=model_config.SYSTEM_PROMPT,
             )
         else:
-            # TODO 使用openailike代替
-            raise ValueError(f"不支持的模型提供商: {provider_name}")
+            return LlamaIndexOpenAILike(
+                model=model_config.MODEL_NAME,
+                api_key=model_config.API_KEY,
+                api_base=model_config.API_BASE_URL,
+                temperature=model_config.TEMPERATURE,
+                max_tokens=model_config.MAX_TOKENS,
+                max_retries=model_config.MAX_RETRIES,
+                system_prompt=model_config.SYSTEM_PROMPT,
+                is_function_calling_model=True,
+            )
 
     @staticmethod
     def create_embedding_client(model_config: EmbeddingModelSettings) -> BaseEmbedding:

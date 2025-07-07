@@ -15,12 +15,15 @@ from llama_index.core import (
 )
 from llama_index.core.retrievers import (
     VectorIndexRetriever,
-    QueryFusionRetriever
+    QueryFusionRetriever,
+    BaseRetriever
 )
 from llama_index.retrievers.bm25 import BM25Retriever
 from llama_index.core.tools import RetrieverTool, ToolMetadata
 from llama_index.core.selectors import (
     PydanticSingleSelector,
+    PydanticMultiSelector,
+    LLMMultiSelector,
 )
 from llama_index.core.llms import LLM
 
@@ -41,7 +44,9 @@ from common.postgres_vector_store import create_postgres_vector_store_builder, P
 from utils.logging_config import setup_logging
 from models import init_db
 from dao.chat_dao import ChatDAO
+from dao.index_dao import IndexDAO
 from services.model_client_factory import ModelClientFactory
+from services.auto_index_description_generator import AutoIndexDescriptionGenerator
 
 setup_logging()
 logger = logging.getLogger(__name__)
@@ -238,6 +243,76 @@ class UnifiedReranker(BaseNodePostprocessor):
 
 
 
+class AutoMergeRetrieverWrapper(BaseRetriever):
+    """自动合并检索器包装器，在重排序后执行自动合并"""
+    
+    def __init__(self, base_retriever: BaseRetriever, rag_service: 'RAGService', index_ids: List[str], enable_auto_merge:bool=True):
+        super().__init__()
+        self.base_retriever = base_retriever
+        self.rag_service = rag_service
+        self.index_ids = index_ids
+        self.enable_auto_merge = enable_auto_merge
+    
+    def _retrieve(self, query_bundle: QueryBundle) -> List[NodeWithScore]:
+        """执行检索并应用自动合并"""
+        # 1. 基础检索
+        nodes = self.base_retriever.retrieve(query_bundle)
+        
+        # 2. 统一重排序
+        reranked_nodes = self.rag_service.unified_reranker.postprocess_nodes(nodes, query_bundle)
+        
+        if not self.enable_auto_merge:
+            return reranked_nodes
+        
+        # 4. 自动合并检索
+        try:
+            import asyncio
+            loop = asyncio.get_event_loop()
+            if loop.is_running():
+                # 如果在异步环境中，创建新的任务
+                task = asyncio.create_task(self.rag_service._auto_merge_retrieve(
+                    reranked_nodes, self.index_ids, query_bundle
+                ))
+                # 等待任务完成
+                merged_nodes = loop.run_until_complete(task)
+            else:
+                # 如果不在异步环境中，直接运行
+                merged_nodes = loop.run_until_complete(self.rag_service._auto_merge_retrieve(
+                    reranked_nodes, self.index_ids, query_bundle
+                ))
+        except Exception as e:
+            logger.warning(f"Auto merge failed, using reranked nodes: {e}")
+            merged_nodes = reranked_nodes
+        
+        return merged_nodes
+    
+    async def _aretrieve(self, query_bundle: QueryBundle) -> List[NodeWithScore]:
+        """异步检索并应用自动合并"""
+        # 1. 基础检索
+        if hasattr(self.base_retriever, 'aretrieve'):
+            nodes = await self.base_retriever.aretrieve(query_bundle)
+        else:
+            nodes = self.base_retriever.retrieve(query_bundle)
+        
+        # 2. 统一重排序
+        reranked_nodes = self.rag_service.unified_reranker.postprocess_nodes(nodes, query_bundle)
+        
+        
+        if not self.enable_auto_merge:
+            return reranked_nodes
+        
+        # 4. 自动合并检索
+        try:
+            merged_nodes = await self.rag_service._auto_merge_retrieve(
+                reranked_nodes, self.index_ids, query_bundle
+            )
+        except Exception as e:
+            logger.warning(f"Auto merge failed, using reranked nodes: {e}")
+            merged_nodes = reranked_nodes
+        
+        return merged_nodes
+
+
 class ConversationSession:
     """对话会话"""
     def __init__(self, session_id: str, index_ids: List[str]):
@@ -314,6 +389,7 @@ class RAGService:
             self.loaded_indexes: Dict[str, VectorStoreIndex] = {}
             self.sessions: Dict[str, ConversationSession] = {}
             self._retriever_cache: Dict[str, Any] = {}  # 统一的retriever缓存
+            self.description_generator = AutoIndexDescriptionGenerator(self.llm)  # 描述生成器
             
             # 自动合并检索配置
             self.auto_merge_config = {
@@ -523,10 +599,17 @@ class RAGService:
             logger.error(f"Failed to load index {index_id}: {e}")
             return False
     
-    def _get_or_create_retriever(self, index_ids: List[str], top_k: int = None, similarity_threshold: float = None):
-        """获取或创建retriever（支持缓存复用）"""
+    def _get_or_create_retriever(self, index_ids: List[str], top_k: int = None, similarity_threshold: float = None, query: str = None):
+        """获取或创建retriever（支持缓存复用和查询预筛选）"""
         
         top_k = top_k or settings.RETRIEVAL_TOP_K
+        
+        # 对于多索引且有查询的情况，不使用缓存以支持动态预筛选
+        if len(index_ids) > 1 and query:
+            logger.debug("Creating dynamic retriever with query-based prefiltering")
+            return self._create_multi_index_router_retriever(index_ids, top_k, query)
+        
+        # 其他情况使用缓存
         cache_key = f"{'_'.join(sorted(index_ids))}_{top_k}"
         
         if cache_key in self._retriever_cache:
@@ -534,10 +617,128 @@ class RAGService:
             return self._retriever_cache[cache_key]
         
         # 创建新的retriever
-        retriever = self._create_unified_retriever(index_ids, top_k, similarity_threshold)
+        if len(index_ids) == 1:
+            retriever = self._create_unified_retriever(index_ids, top_k, similarity_threshold)
+        else:
+            retriever = self._create_multi_index_router_retriever(index_ids, top_k)
+        
         self._retriever_cache[cache_key] = retriever
         logger.info(f"Created and cached new retriever for key: {cache_key}")
         return retriever
+    
+    def _prefilter_indexes_by_query(self, index_ids: List[str], query: str, max_indexes: int = 3) -> List[str]:
+        """基于查询内容预筛选相关索引
+        
+        Args:
+            index_ids: 候选索引ID列表
+            query: 用户查询
+            max_indexes: 最大返回索引数量
+            
+        Returns:
+            筛选后的索引ID列表
+        """
+        try:
+            if len(index_ids) <= max_indexes:
+                return index_ids
+            
+            # 提取查询关键词
+            query_keywords = set(query.lower().split())
+            
+            # 计算每个索引的相关性分数
+            index_scores = []
+            
+            for index_id in index_ids:
+                if index_id not in self.loaded_indexes:
+                    continue
+                    
+                # 获取索引描述
+                description = self._get_index_description(index_id)
+                description_lower = description.lower()
+                
+                # 计算关键词匹配分数
+                keyword_matches = sum(1 for keyword in query_keywords if keyword in description_lower)
+                keyword_score = keyword_matches / len(query_keywords) if query_keywords else 0
+                
+                # 计算语义相关性分数（简单的词汇重叠）
+                description_words = set(description_lower.split())
+                semantic_score = len(query_keywords.intersection(description_words)) / len(query_keywords.union(description_words)) if query_keywords.union(description_words) else 0
+                
+                # 综合分数
+                total_score = keyword_score * 0.6 + semantic_score * 0.4
+                
+                index_scores.append((index_id, total_score))
+                logger.debug(f"Index {index_id} relevance score: {total_score:.3f}")
+            
+            # 按分数排序并选择top-k
+            index_scores.sort(key=lambda x: x[1], reverse=True)
+            selected_indexes = [item[0] for item in index_scores[:max_indexes]]
+            
+            logger.info(f"Prefiltered {len(index_ids)} indexes to {len(selected_indexes)} based on query relevance")
+            return selected_indexes
+            
+        except Exception as e:
+            logger.error(f"Error in index prefiltering: {e}")
+            return index_ids[:max_indexes]  # 降级处理
+    
+    def _create_multi_index_router_retriever(self, index_ids: List[str], top_k: int, query: str = None) -> RouterRetriever:
+        """创建多索引路由检索器（支持索引预筛选）"""
+        try:
+            if not index_ids:
+                raise ValueError("No index IDs provided")
+            
+            # 索引预筛选优化
+            if query and len(index_ids) > 3:
+                filtered_index_ids = self._prefilter_indexes_by_query(index_ids, query, max_indexes=3)
+                logger.info(f"Prefiltered indexes from {len(index_ids)} to {len(filtered_index_ids)}")
+            else:
+                filtered_index_ids = index_ids
+            
+            # 为筛选后的索引创建检索工具
+            retriever_tools = []
+            
+            for index_id in filtered_index_ids:
+                if index_id not in self.loaded_indexes:
+                    logger.warning(f"Index {index_id} not loaded, skipping")
+                    continue
+                
+                index = self.loaded_indexes[index_id]
+                description = self._get_index_description(index_id)
+                
+                # 创建统一检索器（包含向量检索器和BM25检索器）以支持自动合并
+                unified_retriever = self._create_unified_retriever([index_id], top_k)
+                
+                # 创建检索工具
+                retriever_tool = RetrieverTool(
+                    retriever=unified_retriever,
+                    metadata=ToolMetadata(
+                        name=f"index_{index_id}",
+                        description=description
+                    )
+                )
+                
+                retriever_tools.append(retriever_tool)
+                logger.info(f"Created unified retriever tool for index {index_id}: {description[:100]}...")
+            
+            if not retriever_tools:
+                raise ValueError("No valid retriever tools created")
+            
+            # 创建LLM多选择器（兼容性更好，避免函数调用API问题）
+            selector = LLMMultiSelector.from_defaults(
+                llm=self.llm
+            )
+            
+            # 创建路由检索器
+            router_retriever = RouterRetriever(
+                selector=selector,
+                retriever_tools=retriever_tools
+            )
+            
+            logger.info(f"Created multi-index router retriever with {len(retriever_tools)} unified tools")
+            return router_retriever
+            
+        except Exception as e:
+            logger.error(f"Error creating multi-index router retriever: {e}")
+            raise
     
     def _create_unified_retriever(self, index_ids: List[str], top_k: int, similarity_threshold: float = None):
         """创建统一的检索器（支持单索引和多索引）"""
@@ -596,6 +797,42 @@ class RAGService:
       
         return base_retriever
     
+    def _get_index_description(self, index_id: str) -> str:
+        """获取索引描述"""
+        try:
+            # 直接从数据库获取
+            from models.database import SessionLocal
+            db = SessionLocal()
+            try:
+                index_info = IndexDAO.get_index_by_id(db, index_id)
+                if index_info and index_info.index_description:
+                    return index_info.index_description
+                
+                # 如果数据库中没有，尝试自动生成
+                if index_id in self.loaded_indexes:
+                    index = self.loaded_indexes[index_id]
+                    description = self.description_generator.generate_description(index, sample_size=30)
+                    
+                    # 保存到数据库
+                    IndexDAO.update_index_description(db, index_id, description)
+                    db.commit()
+                    
+                    logger.info(f"Generated and saved description for index {index_id}")
+                    return description
+            except Exception as e:
+                db.rollback()
+                raise e
+            finally:
+                db.close()
+            
+            # 默认描述
+            default_description = f"知识库索引 {index_id}"
+            return default_description
+            
+        except Exception as e:
+            logger.error(f"Error getting index description for {index_id}: {e}")
+            return f"知识库索引 {index_id}"
+    
     def _get_docstore_from_index(self, index: VectorStoreIndex, index_id: str):
         """从索引获取docstore"""
         if settings.VECTOR_STORE_TYPE == "postgres":
@@ -644,9 +881,13 @@ class RAGService:
             
             # 获取或创建retriever
             if use_cached_retriever:
-                retriever = self._get_or_create_retriever(valid_index_ids, top_k, similarity_threshold)
+                retriever = self._get_or_create_retriever(valid_index_ids, top_k, similarity_threshold, query)
             else:
-                retriever = self._create_unified_retriever(valid_index_ids, top_k, similarity_threshold)
+                # 根据索引数量选择检索策略
+                if len(valid_index_ids) == 1:
+                    retriever = self._create_unified_retriever(valid_index_ids, top_k, similarity_threshold)
+                else:
+                    retriever = self._create_multi_index_router_retriever(valid_index_ids, top_k, query)
             
             # 执行检索
             query_bundle = QueryBundle(query_str=query)
@@ -1093,26 +1334,35 @@ class RAGService:
             if not loaded_indices:
                 raise ValueError("No valid indices could be loaded for the session.")
 
-            # 使用统一检索器方法
-            logger.info("Using unified retriever for chat engine")
-
-            # 使用统一重排序器
-            node_postprocessors = [self.unified_reranker]
-
-            # 使用统一检索器创建方法
-            base_retriever = self._create_unified_retriever(
+            # 根据索引数量选择检索策略
+            if len(index_ids) == 1:
+                # 单索引使用统一检索器
+                base_retriever = self._create_unified_retriever(
+                    index_ids=index_ids,
+                    top_k=settings.RETRIEVAL_TOP_K
+                )
+                logger.info(f"Created unified retriever for single index: {index_ids[0]}")
+            else:
+                # 多索引使用路由检索器
+                base_retriever = self._create_multi_index_router_retriever(
+                    index_ids=index_ids,
+                    top_k=settings.RETRIEVAL_TOP_K
+                )
+                logger.info(f"Created multi-index router retriever with {len(index_ids)} indices")
+            
+            # 使用自动合并检索器包装器（包含重排序和自动合并）
+            auto_merge_retriever = AutoMergeRetrieverWrapper(
+                base_retriever=base_retriever,
+                rag_service=self,
                 index_ids=index_ids,
-                top_k=settings.RETRIEVAL_TOP_K
+                enable_auto_merge=True
             )
-            
-            logger.info(f"Created unified retriever for chat engine with {len(index_ids)} indices")
-            
+            logger.info("Created auto-merge retriever wrapper with unified reranking and auto-merge")
         
-            # 创建聊天引擎
+            # 创建聊天引擎（不再需要node_postprocessors，因为重排序和自动合并都在包装器中处理）
             session.chat_engine = CondensePlusContextChatEngine.from_defaults(
-                retriever=base_retriever,
+                retriever=auto_merge_retriever,
                 memory=session.memory,
-                node_postprocessors=node_postprocessors,
                 llm=self.llm,
                 verbose=True,
                 system_prompt="你是一个专业的文档问答助手。请严格遵循以下规则：\n1. 严格根据给出的上下文回答用户问题，如果上下文没有直接相关信息，请明确说明'我没有此问题的完整信息'\n2. 使用中文回答\n3. 不要自我总结和概述，直接回答用户的具体问题\n4. 回答时不要提及'根据上下文内容'、'根据提供的信息'等表述，直接给出答案",
