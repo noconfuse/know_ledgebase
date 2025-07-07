@@ -21,17 +21,14 @@ except ImportError:
         pass  # 如果dotenv未安装，继续使用默认值
 
 # 设置Hugging Face离线模式环境变量
-os.environ["HF_HUB_OFFLINE"] = "0"
-os.environ["TRANSFORMERS_OFFLINE"] = "0"
 
-os.environ["EASYOCR_DOWNLOAD"] = "0"
 os.environ["HF_ENDPOINT"] = "https://hf-mirror.com"
 
 class EmbeddingModelSettings(BaseModel):
     """嵌入模型配置"""
     PROVIDER_NAME: str = os.getenv("EMBEDDING_PROVIDER_NAME", "siliconflow")
     MODEL_NAME: str = os.getenv("EMBEDDING_MODEL_NAME", "BAAI/bge-m3")
-    API_BASE_URL: str = os.getenv("EMBEDDING_API_BASE_URL", "https://api.siliconflow.com")
+    API_BASE_URL: str = os.getenv("EMBEDDING_API_BASE_URL", "https://api.siliconflow.cn/v1/embeddings")
     API_KEY: str = os.getenv("EMBEDDING_API_KEY", "")
     DIMENSIONS: int = int(os.getenv("EMBEDDING_DIMENSIONS", "1024"))
     LOCAL_PATH: str = os.getenv("EMBEDDING_LOCAL_PATH", "")
@@ -40,13 +37,13 @@ class RerankModelSettings(BaseModel):
     """重排模型配置"""
     PROVIDER_NAME: str = os.getenv("RERANK_PROVIDER_NAME", "siliconflow")
     MODEL_NAME: str = os.getenv("RERANK_MODEL_NAME", "BAAI/bge-reranker-v2-m3")
-    API_BASE_URL: str = os.getenv("RERANK_API_BASE_URL", "https://api.siliconflow.com")
+    API_BASE_URL: str = os.getenv("RERANK_API_BASE_URL", "https://api.siliconflow.cn/v1/rerank")
     API_KEY: str = os.getenv("RERANK_API_KEY", "")
 
 class LLMModelSettings(BaseModel):
     """LLM模型配置"""
     PROVIDER_NAME: str = os.getenv("LLM_PROVIDER_NAME", "zhipu")
-    MODEL_NAME: str = os.getenv("LLM_MODEL_NAME", "glm-4-flash-250414")
+    MODEL_NAME: str = os.getenv("LLM_MODEL_NAME", "glm-4-flash")
     API_BASE_URL: str = os.getenv("LLM_API_BASE_URL", "https://open.bigmodel.cn/api/paas/v4")
     API_KEY: str = os.getenv("LLM_API_KEY", "")
     TEMPERATURE: float = float(os.getenv("LLM_TEMPERATURE", "0.5"))

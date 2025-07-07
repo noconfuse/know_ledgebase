@@ -1,10 +1,16 @@
 from fastapi import APIRouter, Depends, HTTPException, status
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
+from typing import Optional
 from fastapi.responses import JSONResponse
 from sqlalchemy.orm import Session
 from datetime import datetime, timedelta
 import jwt
+import base64
+import json
 from passlib.context import CryptContext
+from cryptography.fernet import Fernet
+from cryptography.hazmat.primitives import hashes
+from cryptography.hazmat.primitives.kdf.pbkdf2 import PBKDF2HMAC
 
 from models.database import get_db
 from dao.user_dao import UserDAO
@@ -15,7 +21,7 @@ from common.response import success_response, error_response, ErrorCodes
 from common.exception_handler import setup_exception_handlers
 
 router = APIRouter(prefix="/auth", tags=["authentication"])
-security = HTTPBearer()
+security = HTTPBearer(auto_error=False)
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 
 def create_access_token(data: dict, expires_delta: timedelta = None):
@@ -255,34 +261,130 @@ async def delete_current_user(
     )
 
 
+def _create_cipher_suite():
+    """创建加密套件"""
+    # 使用FREE_LOGIN_TOKEN作为密钥生成Fernet密钥
+    password = settings.FREE_LOGIN_TOKEN.encode()
+    salt = b'salt_1234567890'  # 固定盐值，生产环境建议使用随机盐值
+    kdf = PBKDF2HMAC(
+        algorithm=hashes.SHA256(),
+        length=32,
+        salt=salt,
+        iterations=100000,
+    )
+    key = base64.urlsafe_b64encode(kdf.derive(password))
+    return Fernet(key)
+
+def decrypt_token(encrypted_token: str) -> str:
+    """解密token获取唯一ID"""
+    try:
+        cipher_suite = _create_cipher_suite()
+        # 解码base64
+        encrypted_data = base64.urlsafe_b64decode(encrypted_token.encode())
+        # 解密
+        decrypted_data = cipher_suite.decrypt(encrypted_data)
+        # 解析JSON
+        payload = json.loads(decrypted_data.decode())
+        return payload.get('unique_id')
+    except Exception as e:
+        raise ValueError(f"解密失败: {str(e)}")
+
 @router.post("/free_login")
-async def free_login(body: FreeLoginRequest, db: Session = Depends(get_db)) -> JSONResponse:
-    """免费令牌登录，前端传递免费token，后端校验后返回免费账户JWT"""
+async def free_login(
+    body: FreeLoginRequest, 
+    db: Session = Depends(get_db),
+    credentials: Optional[HTTPAuthorizationCredentials] = Depends(security)
+) -> JSONResponse:
+    """免费令牌登录，优先验证authorization，如果存在且有效则刷新token，否则使用body中的token进行解密登录"""
+    
+    # 1. 优先检查authorization header
+    if credentials and credentials.credentials:
+        try:
+            # 尝试获取当前用户信息
+            current_user = get_current_active_user(credentials, db)
+            if current_user:
+                # 用户存在且token有效，生成新的access_token
+                access_token = create_access_token(data={"sub": current_user["username"], "user_id": str(current_user["id"])})
+                
+                # 更新最后登录时间
+                UserDAO.update_last_login(db, str(current_user["id"]))
+                
+                return success_response(
+                    data={
+                        "access_token": access_token,
+                        "token_type": "bearer",
+                        "expires_in": settings.JWT_ACCESS_TOKEN_EXPIRE_HOURS * 3600,
+                        "user": current_user
+                    },
+                    message="用户token刷新成功"
+                )
+        except HTTPException:
+            # token过期或无效，继续使用body中的token逻辑
+            pass
+        except Exception:
+            # 其他错误，继续使用body中的token逻辑
+            pass
+    
+    # 2. 如果没有authorization或authorization无效，使用body中的token
     token = body.token
-    # 1. 校验token
-    if token != getattr(settings, "FREE_LOGIN_TOKEN", None):
+    
+    try:
+        # 使用对称加密解密token获取唯一ID
+        unique_id = decrypt_token(token)
+        if not unique_id:
+            return error_response(
+                message="token中缺少唯一ID",
+                error_code=ErrorCodes.INVALID_TOKEN,
+                status_code=401
+            )
+        
+        # 根据唯一ID查找或创建用户
+        user = UserDAO.get_or_create_user_by_unique_id(db, unique_id)
+        if not user:
+            return error_response(
+                message="获取或创建用户失败",
+                error_code=ErrorCodes.INTERNAL_ERROR,
+                status_code=500
+            )
+        
+        if not user.is_active:
+            return error_response(
+                message="用户账户已被禁用",
+                error_code=ErrorCodes.INACTIVE_USER,
+                status_code=400
+            )
+        
+        # 更新最后登录时间
+        UserDAO.update_last_login(db, str(user.id))
+        
+        # 创建访问令牌
+        access_token = create_access_token(data={"sub": user.username, "user_id": str(user.id)})
+        
+        user_response = UserResponse.model_validate(user)
+        
+        # 返回登录结果
+        return success_response(
+            data={
+                "access_token": access_token,
+                "token_type": "bearer",
+                "expires_in": settings.JWT_ACCESS_TOKEN_EXPIRE_HOURS * 3600,
+                "user": user_response.model_dump()
+            },
+            message="免费账户登录成功"
+        )
+        
+    except ValueError as e:
         return error_response(
-            message="无效的免费令牌",
+            message=str(e),
             error_code=ErrorCodes.INVALID_TOKEN,
             status_code=401
         )
-    # 2. 查找数据库中的 free_user
-    user = UserDAO.get_user_by_username(db, "free_user")
-    if not user or not user.is_active:
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
         return error_response(
-            message="免费用户不存在或已被禁用，请联系管理员初始化数据库",
-            error_code=ErrorCodes.USER_NOT_FOUND,
-            status_code=500
+            message="免费登录过程中发生错误",
+            error_code=ErrorCodes.INTERNAL_ERROR,
+            status_code=500,
+            details={"error": str(e)}
         )
-    user_response = UserResponse.model_validate(user)
-    # 3. 签发JWT
-    access_token = create_access_token(data={"sub": user.username, "user_id": str(user.id)})
-    # 4. 返回
-    return success_response(
-        data={
-            "access_token": access_token,
-            "token_type": "bearer",
-            "user": user_response.model_dump()
-        },
-        message="免费账户登录成功"
-    )

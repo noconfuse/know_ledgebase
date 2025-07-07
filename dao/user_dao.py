@@ -271,3 +271,40 @@ class UserDAO:
         except Exception as e:
             logger.error(f"Error checking token revocation: {e}")
             return False
+    
+    @staticmethod
+    def get_or_create_user_by_unique_id(db: Session, unique_id: str) -> Optional[User]:
+        """根据唯一ID获取或创建用户"""
+        try:
+            # 首先尝试根据用户名查找（使用unique_id作为用户名）
+            user = db.query(User).filter(User.username == unique_id).first()
+            if user:
+                logger.info(f"Found existing user with unique_id: {unique_id}")
+                return user
+            
+            # 如果用户不存在，创建新用户
+            import random
+            import string
+            
+            # 生成随机密码
+            random_password = ''.join(random.choices(string.ascii_letters + string.digits, k=16))
+            
+            user = User(
+                username=unique_id,
+                email=None,  # 免费用户不需要邮箱
+                hashed_password=User.hash_password(random_password),
+                full_name=f"Free User {unique_id[:8]}",  # 使用ID前8位作为显示名
+                is_superuser=False
+            )
+            
+            db.add(user)
+            db.flush()  # 刷新以获取ID，但不提交
+            db.commit()  # 提交事务，确保写入数据库
+            
+            logger.info(f"Created new user with unique_id: {unique_id}")
+            return user
+            
+        except Exception as e:
+            logger.error(f"Error getting or creating user by unique_id: {e}", exc_info=True)
+            db.rollback()
+            return None
