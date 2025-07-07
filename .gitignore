@@ -13,3 +13,4 @@ storage
 outputs
 models_dir
 cache
+.env
