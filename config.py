@@ -34,7 +34,7 @@ class EmbeddingModelSettings(BaseModel):
     API_BASE_URL: str = os.getenv("EMBEDDING_API_BASE_URL", "https://api.siliconflow.com")
     API_KEY: str = os.getenv("EMBEDDING_API_KEY", "")
     DIMENSIONS: int = int(os.getenv("EMBEDDING_DIMENSIONS", "1024"))
-    LOCAL_PATH: str = os.getenv("EMBEDDING_LOCAL_PATH", os.path.join(os.path.dirname(__file__), "models_dir", "bge_m3"))
+    LOCAL_PATH: str = os.getenv("EMBEDDING_LOCAL_PATH", "")
 
 class RerankModelSettings(BaseModel):
     """重排模型配置"""
