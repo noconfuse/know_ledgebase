@@ -8,9 +8,9 @@ import jwt
 import base64
 import json
 from passlib.context import CryptContext
-from cryptography.fernet import Fernet
-from cryptography.hazmat.primitives import hashes
-from cryptography.hazmat.primitives.kdf.pbkdf2 import PBKDF2HMAC
+from Crypto.Cipher import AES
+from Crypto.Util.Padding import unpad
+import hashlib
 
 from models.database import get_db
 from dao.user_dao import UserDAO
@@ -261,33 +261,90 @@ async def delete_current_user(
     )
 
 
-def _create_cipher_suite():
-    """创建加密套件"""
-    # 使用FREE_LOGIN_TOKEN作为密钥生成Fernet密钥
-    password = settings.FREE_LOGIN_TOKEN.encode()
-    salt = b'salt_1234567890'  # 固定盐值，生产环境建议使用随机盐值
-    kdf = PBKDF2HMAC(
-        algorithm=hashes.SHA256(),
-        length=32,
-        salt=salt,
-        iterations=100000,
-    )
-    key = base64.urlsafe_b64encode(kdf.derive(password))
-    return Fernet(key)
-
 def decrypt_token(encrypted_token: str) -> str:
-    """解密token获取唯一ID"""
+    """解密token获取唯一ID（兼容前端CryptoJS AES加密）"""
     try:
-        cipher_suite = _create_cipher_suite()
-        # 解码base64
-        encrypted_data = base64.urlsafe_b64decode(encrypted_token.encode())
-        # 解密
-        decrypted_data = cipher_suite.decrypt(encrypted_data)
-        # 解析JSON
-        payload = json.loads(decrypted_data.decode())
-        return payload.get('unique_id')
+        # 前端加密流程：
+        # 1. JSON.stringify(payload)
+        # 2. CryptoJS.AES.encrypt(jsonString, freeLoginToken).toString()
+        # 3. CryptoJS.enc.Base64.stringify(CryptoJS.enc.Utf8.parse(encrypted))
+        
+        # 后端解密流程：
+        # 1. 从最外层base64解码得到AES加密的字符串
+        encrypted_aes_string = base64.b64decode(encrypted_token).decode('utf-8')
+        
+        # 2. 解析CryptoJS的AES加密格式
+        password = settings.FREE_LOGIN_TOKEN.encode('utf-8')
+        
+        # CryptoJS的AES加密结果是base64格式，需要再次解码
+        encrypted_data = base64.b64decode(encrypted_aes_string)
+        
+        # CryptoJS在加密时会在前8字节添加"Salted__"标识，接下来8字节是盐值
+        if encrypted_data[:8] == b'Salted__':
+            salt = encrypted_data[8:16]
+            ciphertext = encrypted_data[16:]
+            
+            print(f"调试信息 - 盐值: {salt.hex()}")
+            print(f"调试信息 - 密文长度: {len(ciphertext)}")
+            
+            # 使用CryptoJS兼容的EVP_BytesToKey算法生成密钥和IV
+            def evp_bytes_to_key(password: bytes, salt: bytes, key_len: int, iv_len: int) -> tuple:
+                """CryptoJS兼容的密钥派生函数"""
+                d = d_i = b''
+                while len(d) < (key_len + iv_len):
+                    d_i = hashlib.md5(d_i + password + salt).digest()
+                    d += d_i
+                return d[:key_len], d[key_len:key_len+iv_len]
+            
+            key, iv = evp_bytes_to_key(password, salt, 32, 16)
+            
+            print(f"调试信息 - 生成的密钥: {key.hex()[:32]}...")
+            print(f"调试信息 - 生成的IV: {iv.hex()}")
+            
+            # AES解密
+            cipher = AES.new(key, AES.MODE_CBC, iv)
+            decrypted_padded = cipher.decrypt(ciphertext)
+            
+            # 去除PKCS7填充
+            try:
+                decrypted_data = unpad(decrypted_padded, AES.block_size)
+            except ValueError:
+                # 如果标准去填充失败，尝试手动去除填充
+                padding_length = decrypted_padded[-1]
+                if padding_length <= AES.block_size:
+                    decrypted_data = decrypted_padded[:-padding_length]
+                else:
+                    decrypted_data = decrypted_padded
+            
+            # 解码为字符串
+            try:
+                json_string = decrypted_data.decode('utf-8')
+            except UnicodeDecodeError:
+                print(f"调试信息 - UTF-8解码失败，十六进制数据: {decrypted_data.hex()[:100]}...")
+                # 尝试使用latin-1解码作为备用方案
+                json_string = decrypted_data.decode('latin-1')
+            
+            print(f"调试信息 - 解密后的JSON字符串: {json_string}")
+            print(f"调试信息 - JSON字符串长度: {len(json_string)}")
+            
+            # 检查解密数据是否为空
+            if not json_string.strip():
+                raise ValueError("解密后的数据为空")
+            
+            # 解析JSON
+            try:
+                payload = json.loads(json_string)
+                return payload.get('unique_id')
+            except json.JSONDecodeError as e:
+                print(f"调试信息 - JSON解析错误: {e}")
+                print(f"调试信息 - 尝试解析的字符串: '{json_string}'")
+                raise ValueError(f"JSON解析失败: {e}")
+        else:
+            raise ValueError("无效的CryptoJS加密格式")
+            
     except Exception as e:
-        raise ValueError(f"解密失败: {str(e)}")
+        print(f"解密token失败: {e}")
+        raise HTTPException(status_code=400, detail=f"Token解密失败: {str(e)}")
 
 @router.post("/free_login")
 async def free_login(
@@ -301,7 +358,9 @@ async def free_login(
     if credentials and credentials.credentials:
         try:
             # 尝试获取当前用户信息
-            current_user = get_current_active_user(credentials, db)
+            # 首先验证token并获取用户
+            user = await get_current_user(credentials, db)
+            current_user = await get_current_active_user(user)
             if current_user:
                 # 用户存在且token有效，生成新的access_token
                 access_token = create_access_token(data={"sub": current_user["username"], "user_id": str(current_user["id"])})
@@ -318,12 +377,12 @@ async def free_login(
                     },
                     message="用户token刷新成功"
                 )
-        except HTTPException:
-            # token过期或无效，继续使用body中的token逻辑
-            pass
-        except Exception:
-            # 其他错误，继续使用body中的token逻辑
-            pass
+        except HTTPException as e:
+            # token过期或无效，抛出异常
+            raise e
+        except Exception as e:
+            # 其他错误，抛出异常
+            raise e
     
     # 2. 如果没有authorization或authorization无效，使用body中的token
     token = body.token

@@ -43,6 +43,7 @@ PyJWT==2.8.0
 onnxruntime-gpu==1.18.0
 rapidocr_onnxruntime
 bcrypt==4.0.1
+pycryptodome==3.19.0
 
 llama-index-postprocessor-siliconflow-rerank
 llama-index-embeddings-siliconflow
