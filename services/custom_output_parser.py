@@ -129,6 +129,14 @@ class CustomOutputParser(ChainableOutputParser):
         
         return True
     
+    def _extract_json_from_string(self, text: str) -> Optional[str]:
+        """从字符串中提取JSON对象"""
+        # 使用正则表达式查找被大括号包围的JSON对象
+        match = re.search(r'\{.*\}', text, re.DOTALL)
+        if match:
+            return match.group(0)
+        return None
+
     def _fix_type_mismatches(self, output: str, validation_error: ValidationError) -> str:
         """修复类型不匹配问题
         
@@ -140,8 +148,13 @@ class CustomOutputParser(ChainableOutputParser):
             修复后的JSON字符串
         """
         try:
-            # 解析原始JSON
-            data = json.loads(output)
+            # 首先从输出中提取JSON字符串
+            json_str = self._extract_json_from_string(output)
+            if not json_str:
+                logger.warning("Could not extract JSON from the output for type fixing.")
+                return output
+            
+            data = json.loads(json_str)
             if not isinstance(data, dict):
                 return output
             
@@ -176,11 +189,12 @@ class CustomOutputParser(ChainableOutputParser):
                         current_value = data[field_name]
                         
                         # 如果当前值是列表，但期望是字符串
-                        if isinstance(current_value, list) and len(current_value) > 0:
-                            # 取第一个元素作为字符串值
-                            data[field_name] = str(current_value[0])
+                        if isinstance(current_value, list):
+                            # 将列表中的所有元素连接成一个字符串
+                            new_value = ", ".join(map(str, current_value))
+                            data[field_name] = new_value
                             modified = True
-                            logger.info(f"Converted list field '{field_name}' to string: {current_value} -> '{current_value[0]}'")
+                            logger.info(f"Converted list field '{field_name}' to string: {current_value} -> '{new_value}'")
                         
                         # 如果当前值是其他类型，转换为字符串
                         elif not isinstance(current_value, str):

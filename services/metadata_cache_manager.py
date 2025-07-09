@@ -6,6 +6,7 @@ import re
 from typing import Dict, Any, Optional
 from pathlib import Path
 from datetime import datetime
+from utils.document_utils import truncate_filename
 
 logger = logging.getLogger(__name__)
 
@@ -54,9 +55,6 @@ class MetadataCacheManager:
         sanitized = re.sub(r'_+', '_', sanitized)
         # 移除开头和结尾的下划线和点
         sanitized = sanitized.strip('_.')
-        # 限制长度
-        if len(sanitized) > 100:
-            sanitized = sanitized[:100]
         # 如果清理后为空，使用默认名称
         if not sanitized:
             sanitized = "unknown_document"
@@ -84,8 +82,9 @@ class MetadataCacheManager:
         """
         # 从doc_id中提取文件名
         filename = os.path.basename(doc_id)
-        # 清理文件名
+        # 清理文件名并截断
         safe_filename = self._sanitize_filename(filename)
+        safe_filename = truncate_filename(safe_filename, max_length=40, preserve_extension=False)
         # 为了避免重名，添加doc_id的hash前缀
         doc_hash = hashlib.md5(doc_id.encode("utf-8")).hexdigest()[:8]
         dir_name = f"{doc_hash}_{safe_filename}"

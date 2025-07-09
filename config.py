@@ -199,6 +199,8 @@ class Settings(BaseSettings):
     EASY_OCR_MODEL_PATH: str = Field(default_factory=lambda: os.path.join(os.getenv("KNOWLEDGE_BASE_DIR", str(Path(__file__).parent)), "models_dir/easyocr"))
 
     RAPID_OCR_MODEL_PATH: str = Field(default_factory=lambda: os.path.join(os.getenv("KNOWLEDGE_BASE_DIR", str(Path(__file__).parent)), "models_dir/rapidocr"))
+
+    EMBEDDING_LOCAL_PATH: str = os.getenv("EMBEDDING_LOCAL_PATH", "/home/ubuntu/workspace/know_ledgebase/models_dir/bge_m3")
     
     # JWT认证配置
     JWT_SECRET_KEY: str = os.getenv("JWT_SECRET_KEY", "your-secret-key-change-in-production-please-use-a-strong-random-key")

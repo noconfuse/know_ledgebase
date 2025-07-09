@@ -53,9 +53,39 @@ class VectorStoreBuilder:
 
             # 初始化任务DAO
             self.task_dao = TaskDAO()
+            
+            # 重置服务中断时的RUNNING状态任务
+            self._reset_running_tasks_on_startup()
 
             self._initialized = True
             logger.info("VectorStoreBuilder initialized")
+    
+    def _reset_running_tasks_on_startup(self):
+        """在服务启动时重置所有RUNNING状态的向量任务为FAILED状态"""
+        try:
+            # 获取所有RUNNING状态的向量任务
+            running_tasks = self.task_dao.list_vector_store_tasks(status=TaskStatus.RUNNING)
+            
+            if running_tasks:
+                logger.info(f"Found {len(running_tasks)} RUNNING vector store tasks, resetting to FAILED status")
+                
+                for task in running_tasks:
+                    # 更新任务状态为FAILED
+                    update_data = {
+                        "status": TaskStatus.FAILED,
+                        "error": "Service was interrupted, task reset to failed status",
+                        "completed_at": datetime.utcnow()
+                    }
+                    
+                    self.task_dao.update_vector_store_task(task.task_id, update_data)
+                    logger.info(f"Reset vector store task {task.task_id} from RUNNING to FAILED")
+                
+                logger.info(f"Successfully reset {len(running_tasks)} RUNNING tasks to FAILED status")
+            else:
+                logger.info("No RUNNING vector store tasks found during startup")
+                
+        except Exception as e:
+            logger.error(f"Error resetting RUNNING tasks on startup: {e}")
     
     def _clear_gpu_memory_if_needed(self):
         """在需要时清理GPU内存"""
@@ -670,6 +700,9 @@ class VectorStoreBuilder:
             添加了页码信息的节点列表
         """
         from pathlib import Path
+        from dao.task_dao import TaskDAO
+        from utils.document_utils import truncate_filename
+        from config import settings
 
         # 按文档分组节点
         nodes_by_doc = {}
@@ -685,15 +718,28 @@ class VectorStoreBuilder:
                 nodes_by_doc[doc_path] = []
             nodes_by_doc[doc_path].append(node)
 
+        # 初始化TaskDAO
+        task_dao = TaskDAO()
+
         # 处理每个文档的节点
         for doc_path, doc_nodes in nodes_by_doc.items():
-            # 根据文档路径构建content_list.json路径
+            # 通过文件路径查询解析任务
+            parse_task = task_dao.get_parse_task_by_file_path(doc_path)
+            if not parse_task:
+                logger.warning(f"No parse task found for document: {doc_path}")
+                continue
+
+            # 构建正确的content_list.json路径
+            output_dir = os.path.join(settings.KNOWLEDGE_BASE_DIR, "outputs", parse_task.task_id)
+            
+            # 获取文件名并构建content_list路径
             doc_file = Path(doc_path)
-            base_name = doc_file.stem
-            content_list_path = doc_file.parent / f"{base_name}_content_list.json"
+            base_file_name, _ = os.path.splitext(doc_file.name)
+            truncated_base_name = truncate_filename(base_file_name, max_length=60, preserve_extension=False)
+            content_list_path = Path(output_dir) / f"{truncated_base_name}_content_list.json"
 
             if not content_list_path.exists():
-                logger.warning(f"No content_list.json found for document: {doc_path}")
+                logger.warning(f"No content_list.json found for document: {doc_path} at {content_list_path}")
                 continue
 
             try:

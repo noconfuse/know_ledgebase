@@ -13,4 +13,5 @@ storage
 outputs
 models_dir
 cache
+database_export
 .env

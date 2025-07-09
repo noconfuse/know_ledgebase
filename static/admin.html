@@ -1241,7 +1241,7 @@
                 
                 let html = '';
                 data.data.items.forEach(task => {
-                    const canRestart = task.status !== 'RUNNING';
+                    const canRestart = true
                     html += `
                         <tr>
                             <td class="truncate" title="${task.task_id}">${task.task_id}</td>
@@ -2097,7 +2097,7 @@
         async function openCreateVectorTaskModal() {
             try {
                 // 加载已完成的解析任务
-                const data = await apiCall('/admin/parse-tasks?limit=1000&offset=0');
+                const data = await apiCall('/admin/parse-tasks?limit=10000&offset=0');
                 allCompletedTasks = data.data.items.filter(task => task.status === 'COMPLETED');
                 
                 // 重置筛选器

@@ -47,7 +47,7 @@ class DocumentLevelMetadataExtractor(BaseExtractor):
     """
     
     llm: LLM = Field(description="语言模型实例")
-    min_doc_size_for_extraction: int = Field(default=500, description="进行元数据提取的最小文档大小")
+    min_doc_size_for_extraction: int = Field(default=100, description="进行元数据提取的最小文档大小")
     max_doc_size_for_extraction: int = Field(default=100000, description="进行元数据提取的最大文档大小")
     enable_cache: bool = Field(default=True, description="是否启用缓存")
     cache_manager: Optional[MetadataCacheManager] = Field(default=None, description="缓存管理器")
@@ -126,34 +126,41 @@ class DocumentLevelMetadataExtractor(BaseExtractor):
                         metadata_list.append(cached_metadata)
                         continue
                     
-                if text_length > self.max_doc_size_for_extraction:
-                    logger.info(f"📏 Document too large ({text_length} > {self.max_doc_size_for_extraction}), using optimized content")
-                    # 使用优化后的内容进行元数据提取
-                    optimized_content = self._optimize_document_content(node.text)
-                    doc_metadata = self._extract_document_metadata_with_retry(optimized_content, doc_id)
-                else:
-                    # 直接使用原始内容
-                    doc_metadata = self._extract_document_metadata_with_retry(node.text, doc_id)
-                
-                if doc_metadata:
-                    # 直接展开存储元数据
-                    metadata_dict.update(doc_metadata)
+                try:
+                    if text_length > self.max_doc_size_for_extraction:
+                        logger.info(f"📏 Document too large ({text_length} > {self.max_doc_size_for_extraction}), using optimized content")
+                        # 使用优化后的内容进行元数据提取
+                        optimized_content = self._optimize_document_content(node.text)
+                        doc_metadata = self._extract_document_metadata_with_retry(optimized_content, doc_id)
+                    else:
+                        # 直接使用原始内容
+                        doc_metadata = self._extract_document_metadata_with_retry(node.text, doc_id)
                     
-                    # 保存到缓存
-                    if self.cache_manager:
-                        self.cache_manager.save_metadata_to_cache(doc_id, doc_metadata, node.text)
-                        logger.info(f"📋 Document metadata cached for: {doc_id}")
-                    
-                    # 移除失败记录
-                    if self.failure_manager:
-                        self.failure_manager.remove_document_failure(doc_id)
-                    
-                    logger.info(f"✅ Document metadata extracted successfully for: {doc_id}")
-                else:
-                    logger.warning(f"⚠️ Failed to extract document metadata for: {doc_id}")
+                    if doc_metadata:
+                        # 直接展开存储元数据
+                        metadata_dict.update(doc_metadata)
+                        
+                        # 保存到缓存
+                        if self.cache_manager:
+                            self.cache_manager.save_metadata_to_cache(doc_id, doc_metadata, node.text)
+                            logger.info(f"📋 Document metadata cached for: {doc_id}")
+                        
+                        # 移除失败记录
+                        if self.failure_manager:
+                            self.failure_manager.remove_document_failure(doc_id)
+                        
+                        logger.info(f"✅ Document metadata extracted successfully for: {doc_id}")
+                    else:
+                        # 这种情况理论上不应该发生，因为失败会以异常形式抛出
+                        logger.warning(f"⚠️ Metadata extraction returned None without error for: {doc_id}")
+                        metadata_dict = {}
+
+                except Exception as e:
+                    error_message = f"元数据提取失败: {str(e)}"
+                    logger.error(f"❌ {error_message} for document: {doc_id}")
                     # 记录失败信息
                     if self.failure_manager:
-                        self.failure_manager.record_document_failure(doc_id, node.text, "元数据提取失败")
+                        self.failure_manager.record_document_failure(doc_id, node.text, error_message)
                     # 元数据为空字典
                     metadata_dict = {}
             
@@ -337,15 +344,9 @@ class DocumentLevelMetadataExtractor(BaseExtractor):
                 if attempt == self.max_retries:
                     break
         
-        # 所有重试都失败了
+        # 所有重试都失败了，向上抛出最后一个遇到的异常
         logger.error(f"❌ All {self.max_retries + 1} attempts failed for document metadata extraction. Document: {doc_id}. Last error: {last_error}")
-        
-        # 记录失败（如果有失败管理器）
-        if self.failure_manager:
-            self.failure_manager.record_document_failure(doc_id, text, f"重试{self.max_retries + 1}次后仍失败: {last_error}")
-        
-        # 返回默认元数据
-        return self._create_default_document_metadata()
+        raise Exception(f"重试{self.max_retries + 1}次后仍失败: {last_error}")
     
     def _extract_document_metadata(self, text: str, doc_id: str) -> Optional[Dict[str, Any]]:
         """提取文档级元数据（单次尝试）"""
@@ -486,41 +487,6 @@ class DocumentLevelMetadataExtractor(BaseExtractor):
 
 请根据给定的结构化格式返回结果。
 """
-    
-    def _create_default_document_metadata(self) -> Dict[str, Any]:
-        """动态创建默认文档级元数据"""
-        # 默认使用通用文档元数据模型
-        from models.metadata_models import DocumentLevelMetadata
-        
-        default_metadata = {}
-        
-        for field_name, model_field in DocumentLevelMetadata.model_fields.items():
-            # 根据字段类型设置默认值
-            if model_field.annotation == str:
-                if 'level' in field_name:
-                    default_metadata[field_name] = "一般"
-                elif 'type' in field_name:
-                    default_metadata[field_name] = "未知文档"
-                elif 'summary' in field_name:
-                    default_metadata[field_name] = "元数据提取失败，请重新尝试"
-                elif 'title' in field_name:
-                    default_metadata[field_name] = "未知标题"
-                else:
-                    default_metadata[field_name] = "未知"
-            elif hasattr(model_field.annotation, '__origin__') and model_field.annotation.__origin__ == list:
-                default_metadata[field_name] = ["未知"]
-            elif model_field.annotation == float:
-                default_metadata[field_name] = 0.5
-            elif model_field.annotation == int:
-                default_metadata[field_name] = 0
-            else:
-                default_metadata[field_name] = None
-        
-        # 添加分类信息和失败标记
-        default_metadata['document_category'] = 'general_document'
-        default_metadata['is_fallback'] = True
-        
-        return default_metadata
     
     def _create_fallback_metadata(self) -> Dict[str, Any]:
         """创建回退元数据（保持向后兼容）"""

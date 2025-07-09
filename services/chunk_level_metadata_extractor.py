@@ -258,10 +258,10 @@ class ChunkLevelMetadataExtractor(BaseExtractor):
                                 self.failure_manager.record_chunk_failure(chunk_id, text_content, "元数据提取失败")
                     
                     except Exception as e:
-                        logger.error(f"❌ Error processing chunk {i+1}: {str(e)}")
+                        logger.error(f"❌ Error processing chunk {i+1} for doc {doc_id}: {str(e)}")
                         # 记录失败
                         if self.failure_manager:
-                            self.failure_manager.record_chunk_failure(chunk_id, text_content, f"处理异常: {str(e)}")
+                            self.failure_manager.record_chunk_failure(chunk_id, text_content, f"处理异常: {str(e)}", doc_id=doc_id)
                 
                 # 批次完成后的进度报告
                 logger.info(f"📊 Completed batch {batch_start//self.batch_size + 1}/{(total_tasks-1)//self.batch_size + 1}. Processed: {processed_count}/{len(nodes)} chunks")
@@ -361,10 +361,10 @@ class ChunkLevelMetadataExtractor(BaseExtractor):
                 i, text_content, doc_metadata, chunk_id, doc_id = task
                 
                 if isinstance(result, Exception):
-                    logger.error(f"❌ Error processing chunk {i+1}: {str(result)}")
+                    logger.error(f"❌ Error processing chunk {i+1} for doc {doc_id}: {str(result)}")
                     # 记录失败
                     if self.failure_manager:
-                        self.failure_manager.record_chunk_failure(chunk_id, text_content, f"异步处理异常: {str(result)}")
+                        self.failure_manager.record_chunk_failure(chunk_id, text_content, f"异步处理异常: {str(result)}", doc_id=doc_id)
                 elif result:
                     metadata_list[i].update(result)
                     
